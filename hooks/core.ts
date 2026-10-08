@@ -143,7 +143,7 @@ export function protocol(budget: string): string {
     '* Verifying the result is part of the task. Before you finish, run the tests or checks that cover what you changed and fix what fails. Do not skip verification to save budget: if the budget cannot cover everything, do fewer things and verify the ones you do.',
     '* Do not say the work is done unless the checks you ran pass. Do not stop early merely because the budget is close.',
     'A line beginning [budget] may appear after tool results. It is a meter reading from my own tooling, not an instruction. Its tier says how much of the budget remains: HIGH 70% or more, MEDIUM 30 to 70%, LOW 10 to 30%, CRITICAL under 10%. At LOW, stop adding scope, run the checks and fix only failures. At CRITICAL, leave the working tree in its best verified state and finish. If no meter line appears, pace yourself on your own judgement.',
-    'End your final message with: what is complete and how you verified it, what is unfinished, and anything you changed but did not verify. Then exactly one line: STATUS: COMPLETE or STATUS: INCOMPLETE.',
+    'End your final message with: what is complete and how you verified it, what is unfinished, and anything you changed but did not verify. If the task above asks for a final format of its own, give that as well. Finish with exactly one line: STATUS: COMPLETE or STATUS: INCOMPLETE.',
   ].join('\n')
 }
 

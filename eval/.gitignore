@@ -1,0 +1,11 @@
+# full raw run directories stay on disk; only the light per-run files are committed (see README.md)
+runs/*/ws/
+runs/*/transcript/
+runs/*/transcript.part/
+tmp/
+*.nohup
+*.tmp
+queue.lock
+queue.lock.*
+PAUSED.json
+__pycache__/

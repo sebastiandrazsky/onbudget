@@ -1,0 +1,22 @@
+#!/bin/bash
+name=$(basename "$0")
+ws="$WITHIN_WS"; here=$(pwd -P); task=""
+case "$here/" in
+  "$ws"/?*/*) rel="${here#"$ws"/}"; task="${rel%%/*}" ;;
+esac
+venv="$WITHIN_TASKS/$task/venv"
+if [ -z "$ws" ] || [ -z "$task" ] || [ ! -x "$venv/bin/$name" ]; then
+  echo "$name: run this from inside a task subdirectory, for example: cd pluggy && python -m pytest testing" >&2
+  exit 2
+fi
+if [ -n "$ONBUDGET_SHIM_LOG" ]; then
+  "$venv/bin/python" -I -S -c 'import json, os, sys, time
+with open(os.environ["ONBUDGET_SHIM_LOG"], "a") as f:
+    f.write(json.dumps({"ts": time.time(), "task": sys.argv[1], "argv": sys.argv[3:], "cwd": sys.argv[2]}) + "\n")' \
+    "$task" "$here" "$name" "$@" >/dev/null 2>&1 </dev/null || true
+fi
+pp=""
+while IFS= read -r d; do [ -n "$d" ] && pp="${pp:+$pp:}$ws/$task/$d"; done < "$(dirname "$0")/pp/$task"
+if [ -n "$pp" ]; then export PYTHONPATH="$pp"; else unset PYTHONPATH; fi
+export VIRTUAL_ENV="$venv" PATH="$venv/bin:$PATH"
+exec "$venv/bin/$name" "$@"
