@@ -21,8 +21,8 @@ describe('with no budget set', () => {
     const w = world(on)
     await start($)
     expect(w.commands.map(c => c.name)).toEqual(['onbudget'])
-    expect((await run($, '')).text).toContain('no budget is set')
-    expect((await run($, 'off')).text).toContain('no budget is set')
+    expect((await run($, '')).text.startsWith('no budget is set')).toBe(true)
+    expect((await run($, 'off')).text).toBe('no budget is set.')
     expect((await run($, 'banana')).text).toContain('is not a budget')
   })
 })
@@ -39,7 +39,7 @@ describe('/onbudget $X <task>', () => {
     expect(w.prompts.length).toBe(1)
     expect(w.prompts[0].text.startsWith('Implement authentication\n\nYou have a hard usage budget of $3.00 for this task.')).toBe(true)
     expect(w.prompts[0].origin).toEqual({ kind: 'plugin', name: 'onbudget', asUser: true })
-    expect(lastStatus(w)).toBe('onbudget: spent $0.00 of $3.00 | remaining 100% | tier HIGH')
+    expect(lastStatus(w)).toBe('spent $0.00 of $3.00 | remaining 100% | tier HIGH')
     expect(rows(w, 'hookfail')).toEqual([])
   })
   test('only the spend after the budget was set counts', async ($, on) => {
@@ -101,7 +101,7 @@ describe('/onbudget $X <task>', () => {
     expect(p.text).toBe('also update the docs')
     expect(p.context).toEqual(['[budget] spent $0.10 of $1.00 | remaining 90% | tier HIGH\nThe budget set earlier for this task still applies to this message.'])
     const status = (await run($, '')).text
-    expect(status).toContain('onbudget: $0.10 of $1.00 spent · 90% left · tier HIGH')
+    expect(status.startsWith('$0.10 of $1.00 spent · 90% left · tier HIGH')).toBe(true)
     expect(status).toContain('task: task')
     expect(status).toContain('requests: 1 sent, 0 refused · dearest so far $0.10')
   })

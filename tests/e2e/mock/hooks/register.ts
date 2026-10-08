@@ -5,10 +5,12 @@
 // "mock done"), MOCK_LOG (json path: what the mock saw), MOCK_LEDGER (json path: the ledger and readings, kept across
 // processes so a resumed session can be given a ledger that survives or one that starts over).
 // A reply: { bash?: command to call the Bash tool with, text?: answer text, cost?: dollars it adds to the ledger,
-//            five_hour?: number, seven_day?: number (the readings that arrive with this answer) }
+//            five_hour?: number, seven_day?: number (the readings that arrive with this answer),
+//            sleep_ms?: how long the answer takes (for interrupting a request in flight) }
+// A compaction is answered here too (a one-line summary), since the engine's own would need the model.
 import type { Register } from 'claude-code'
 
-type Reply = { bash?: string; text?: string; cost?: number; five_hour?: number; seven_day?: number }
+type Reply = { bash?: string; text?: string; cost?: number; five_hour?: number; seven_day?: number; sleep_ms?: number }
 let script: Reply[] | undefined
 let i = 0
 let world: { cost: number; five_hour?: number; seven_day?: number } | undefined
@@ -30,9 +32,11 @@ async function note($: any, row: unknown): Promise<void> {
 }
 
 export const register: Register = (on: any) => {
-  on('turn.step', async function* ($: any, e: any) {
+  on('turn.step', async function* ($: any, e: any, next: any) {
     await load($)
     const reply: Reply = script![i++] ?? { text: 'mock done' }
+    await note($, { kind: 'request', index: e.index, agentId: e.agentId ?? null })
+    if (reply.sleep_ms) await $.clock.sleep(reply.sleep_ms, { signal: next?.signal })
     world!.cost += reply.cost ?? 0
     if (reply.five_hour !== undefined) world!.five_hour = reply.five_hour
     if (reply.seven_day !== undefined) world!.seven_day = reply.seven_day
@@ -56,6 +60,11 @@ export const register: Register = (on: any) => {
     await load($)
     const rateLimits = (['five_hour', 'seven_day'] as const).filter(k => world![k] !== undefined).map(k => ({ kind: k, percentUsed: world![k], resetsAt: '2030-01-01T00:00:00.000Z' }))
     return { value: { ...r.value, cost: { usd: world!.cost }, rateLimits } }
+  })
+
+  on('session.compact', async ($: any, e: any) => {
+    await note($, { kind: 'compact', trigger: e.trigger, messages: e.messages.length })
+    return { messages: [{ role: 'user', text: 'Summary of the earlier conversation: the user set a task; work is in progress.', toolUses: [] }] }
   })
 
   // What reached the model beside each tool result (the meter line), and each prompt as it entered.

@@ -20,6 +20,7 @@ import {
 type Engine = EngineInterface
 const WINDOWS: readonly WindowKind[] = ['five_hour', 'seven_day']
 const TYPED = new RegExp(`^\\s*/${NAME}(?:\\s+([\\s\\S]*))?$`) // the command arriving as prompt text (slash commands off, SDK hosts)
+const OWN_NAME = new RegExp(`^${NAME}: `)
 const LOG_CHUNK = 200
 
 // Session state. The store is the record: a reload or a resumed session reads the budget back from it.
@@ -109,9 +110,10 @@ const save = async ($: Engine) => { if (budget) await $.store.set(`budget:${sid}
 
 function showStatus($: Engine): void {
   try {
+    // The engine shows the line under the plugin's name, so the text does not repeat it.
     if (!budget) $.ui.status(undefined)
-    else if (budget.state === 'stopped') $.ui.status(`${NAME}: budget spent (${money(budget.spent)} of ${shown(budget)}) · /${NAME} off to continue`)
-    else $.ui.status(`${NAME}: ${meterLine(budget).replace('[budget] ', '')}`)
+    else if (budget.state === 'stopped') $.ui.status(`budget spent (${money(budget.spent)} of ${shown(budget)}) · /${NAME} off to continue`)
+    else $.ui.status(meterLine(budget).replace('[budget] ', ''))
   } catch { /* a host with no status line */ }
 }
 
@@ -253,7 +255,7 @@ export const register: Register = (on, options) => {
       // The name is written out here and in the command.run matcher below (the engine reads both as literals); core.ts has NAME.
       await $.command.register({ name: 'onbudget', description: 'Run a task under a usage budget', argumentHint: '<$X | N% 5h | N% week> <task> · off' })
       showStatus($)
-      await log($, 'session.start', { budget: budget?.raw ?? envBudget ?? null, restored: budget !== null, effortCap, version: await $.session.version().catch(() => null) })
+      await log($, 'session.start', { sid, budget: budget?.raw ?? envBudget ?? null, restored: budget !== null, effortCap, version: await $.session.version().catch(() => null) })
     } catch (err) { await log($, 'hookfail', { where: 'session.start', error: errText(err) }) }
     return next(e)
   }).catch(($, e, next) => next(e))
@@ -264,10 +266,10 @@ export const register: Register = (on, options) => {
       await ready($)
       const out = await command($, e.args)
       if (out.prompt !== undefined) submitLater($, out.prompt, 0)
-      return { text: out.say }
+      return { text: out.say.replace(OWN_NAME, '') } // the engine prints a command's answer under the plugin's name
     } catch (err) {
       await log($, 'hookfail', { where: 'command.run', error: errText(err) })
-      return { text: `${NAME}: could not run (${errText(err)}). No budget was changed.` }
+      return { text: `could not run (${errText(err)}). No budget was changed.` }
     }
   })
 
@@ -361,9 +363,10 @@ export const register: Register = (on, options) => {
       if (!b || b.state !== 'active' || !r || r.deny !== undefined) return r
       await sync($)
       const line = meterLine(b)
-      const lines = b.remind && e.agentId === undefined ? [reminder(b), line] : [line]
-      if (e.agentId === undefined) b.remind = false
-      await log($, 'tool', { tool: e.tool, agentId: e.agentId ?? null, isError: r.isError ?? false, injected: line })
+      const reminded = b.remind && e.agentId === undefined
+      const lines = reminded ? [reminder(b), line] : [line]
+      if (reminded) b.remind = false
+      await log($, 'tool', { tool: e.tool, agentId: e.agentId ?? null, isError: r.isError ?? false, injected: line, reminded })
       return { ...r, context: [...(r.context ?? []), ...lines] }
     } catch (err) {
       await log($, 'hookfail', { where: 'tool.call', error: errText(err) })
