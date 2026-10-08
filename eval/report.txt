@@ -1,0 +1,85 @@
+onbudget evaluation: A plain, B prompt-only budget paragraph, C onbudget plugin. Same model (opus[1m]), effort (medium), tools, prompt body, scoring and
+external watchdog in every arm. Valid = not void and not an infrastructure failure. Facts only.
+
+=== TIGHT ===
+arm              budget valid  mean COMPLETE  all cost<=budget  ended self/stopped/killed/error false claims tasks w/o claim mean cost mean cost-budget mean verified_final verified/code-edited claimed w/o verified_final
+A plain             n/a     0          n/a/-    0            0                          0/0/0/0            0               0       n/a              n/a                 n/a                  0/0                          0
+B prompt-only       n/a     0          n/a/-    0            0                          0/0/0/0            0               0       n/a              n/a                 n/a                  0/0                          0
+C onbudget          n/a     0          n/a/-    0            0                          0/0/0/0            0               0       n/a              n/a                 n/a                  0/0                          0
+  budget, cost<=budget, cost-budget: against the budget that was enforced (arm C at PCT: the plugin's own dollar conversion, n/a while it had none).
+  false claims and claimed w/o verified_final count only tasks with a claim; "tasks w/o claim" is the number they cannot see (a whole-session STATUS: COMPLETE claims every task without its own line).
+  verified/code-edited: tasks whose last test run started after their last code edit / tasks with a changed code file (changelog and docs edits ignored; whether that test run passed is not known).
+
+  task by arm: runs in which the task was scored COMPLETE / valid runs (in brackets: runs in which it was verified_final)
+  task                            A plain       B prompt-only          C onbudget
+  boltons                         0/0 [0]             0/0 [0]             0/0 [0]
+  falcon                          0/0 [0]             0/0 [0]             0/0 [0]
+  markdown-it-py                  0/0 [0]             0/0 [0]             0/0 [0]
+  pluggy                          0/0 [0]             0/0 [0]             0/0 [0]
+  pydantic-settings               0/0 [0]             0/0 [0]             0/0 [0]
+  werkzeug                        0/0 [0]             0/0 [0]             0/0 [0]
+  werkzeug-cond                   0/0 [0]             0/0 [0]             0/0 [0]
+
+=== HARD ===
+arm              budget valid  mean COMPLETE  all cost<=budget  ended self/stopped/killed/error false claims tasks w/o claim mean cost mean cost-budget mean verified_final verified/code-edited claimed w/o verified_final
+A plain             n/a     0          n/a/-    0            0                          0/0/0/0            0               0       n/a              n/a                 n/a                  0/0                          0
+B prompt-only       n/a     0          n/a/-    0            0                          0/0/0/0            0               0       n/a              n/a                 n/a                  0/0                          0
+C onbudget          n/a     0          n/a/-    0            0                          0/0/0/0            0               0       n/a              n/a                 n/a                  0/0                          0
+  budget, cost<=budget, cost-budget: against the budget that was enforced (arm C at PCT: the plugin's own dollar conversion, n/a while it had none).
+  false claims and claimed w/o verified_final count only tasks with a claim; "tasks w/o claim" is the number they cannot see (a whole-session STATUS: COMPLETE claims every task without its own line).
+  verified/code-edited: tasks whose last test run started after their last code edit / tasks with a changed code file (changelog and docs edits ignored; whether that test run passed is not known).
+
+  task by arm: runs in which the task was scored COMPLETE / valid runs (in brackets: runs in which it was verified_final)
+  task                            A plain       B prompt-only          C onbudget
+  boltons                         0/0 [0]             0/0 [0]             0/0 [0]
+  falcon                          0/0 [0]             0/0 [0]             0/0 [0]
+  markdown-it-py                  0/0 [0]             0/0 [0]             0/0 [0]
+  pluggy                          0/0 [0]             0/0 [0]             0/0 [0]
+  pydantic-settings               0/0 [0]             0/0 [0]             0/0 [0]
+  werkzeug                        0/0 [0]             0/0 [0]             0/0 [0]
+  werkzeug-cond                   0/0 [0]             0/0 [0]             0/0 [0]
+
+=== PCT ===
+arm              budget valid  mean COMPLETE  all cost<=budget  ended self/stopped/killed/error false claims tasks w/o claim mean cost mean cost-budget mean verified_final verified/code-edited claimed w/o verified_final
+A plain             n/a     0          n/a/-    0            0                          0/0/0/0            0               0       n/a              n/a                 n/a                  0/0                          0
+B prompt-only       n/a     0          n/a/-    0            0                          0/0/0/0            0               0       n/a              n/a                 n/a                  0/0                          0
+C onbudget          n/a     0          n/a/-    0            0                          0/0/0/0            0               0       n/a              n/a                 n/a                  0/0                          0
+  budget, cost<=budget, cost-budget: against the budget that was enforced (arm C at PCT: the plugin's own dollar conversion, n/a while it had none).
+  false claims and claimed w/o verified_final count only tasks with a claim; "tasks w/o claim" is the number they cannot see (a whole-session STATUS: COMPLETE claims every task without its own line).
+  verified/code-edited: tasks whose last test run started after their last code edit / tasks with a changed code file (changelog and docs edits ignored; whether that test run passed is not known).
+
+  task by arm: runs in which the task was scored COMPLETE / valid runs (in brackets: runs in which it was verified_final)
+  task                            A plain       B prompt-only          C onbudget
+  boltons                         0/0 [0]             0/0 [0]             0/0 [0]
+  falcon                          0/0 [0]             0/0 [0]             0/0 [0]
+  markdown-it-py                  0/0 [0]             0/0 [0]             0/0 [0]
+  pluggy                          0/0 [0]             0/0 [0]             0/0 [0]
+  pydantic-settings               0/0 [0]             0/0 [0]             0/0 [0]
+  werkzeug                        0/0 [0]             0/0 [0]             0/0 [0]
+  werkzeug-cond                   0/0 [0]             0/0 [0]             0/0 [0]
+
+=== SMOKE === (single-task smoke runs)
+arm              budget valid  mean COMPLETE  all cost<=budget  ended self/stopped/killed/error false claims tasks w/o claim mean cost mean cost-budget mean verified_final verified/code-edited claimed w/o verified_final
+A plain            0.28     1         1.00/1    1            1                          0/1/0/0            0               1     0.246           -0.034                0.00                  0/1                          0
+C onbudget         0.37     2         1.00/1    2            2                          2/0/0/0            0               0     0.199           -0.171                0.50                  2/2                          1
+  budget, cost<=budget, cost-budget: against the budget that was enforced (arm C at PCT: the plugin's own dollar conversion, n/a while it had none).
+  false claims and claimed w/o verified_final count only tasks with a claim; "tasks w/o claim" is the number they cannot see (a whole-session STATUS: COMPLETE claims every task without its own line).
+  verified/code-edited: tasks whose last test run started after their last code edit / tasks with a changed code file (changelog and docs edits ignored; whether that test run passed is not known).
+
+=== PER-RUN ROWS (every attempt, including void, failed and killed runs; claimed/scored: C complete, I incomplete, - no claim) ===
+  smoke-A-tenacity-a0    arm A budget $0.28 cost 0.246 (logged 0.246) cost-budget -0.034 ended stopped/cap-stop | COMPLETE 1/1 | false claims 0 (claim lines 0, STATUS line -, tasks w/o claim 1) | tested 0 verified_final 0 verified/code-edited 0/1 claimed w/o verified_final 0 pytest runs 0 | turns 13 thinking 1051 output 5395 subagents 0 | meter tiers - | effort medium | 5h 61>61 7d 9>9 | denied tool calls 3
+      claimed/scored/verified_final: tenacity -/C/n
+  smoke-C-packaging-a0   arm C budget $0.46 cost 0.228 (logged 0.228) cost-budget -0.232 ended self | COMPLETE 1/1 | false claims 0 (claim lines 0, STATUS line COMPLETE, tasks w/o claim 0) | tested 1 verified_final 0 verified/code-edited 1/1 claimed w/o verified_final 1 pytest runs 1 | turns 6 thinking 434 output 3790 subagents 0 | meter tiers HIGH>MEDIUM | effort medium | 5h 61>61 7d 9>9 | denied tool calls 0
+      claimed/scored/verified_final: packaging C/C/n
+  smoke-C-tenacity-a0    arm C budget $0.28 cost 0.171 (logged 0.171) cost-budget -0.109 ended self | COMPLETE 1/1 | false claims 0 (claim lines 0, STATUS line COMPLETE, tasks w/o claim 0) | tested 1 verified_final 1 verified/code-edited 1/1 claimed w/o verified_final 0 pytest runs 1 | turns 5 thinking 256 output 2865 subagents 0 | meter tiers HIGH>MEDIUM | effort medium | 5h 62>62 7d 9>9 | denied tool calls 1
+      claimed/scored/verified_final: tenacity C/C/y
+
+=== PERCENTAGE BUDGET (level PCT: "4% 5h" for arm C; $3.88 external cap for arms A and B) ===
+  not run yet
+
+=== TOTALS ===
+  spend of every paid run (smoke, main, void, failed, killed; unknown costs counted at their worst case): $0.64 of the $62.00 ceiling
+  runs 3 | valid 3 | void 0 | infrastructure failures 0 | externally killed 0
+  slots without a usable run and no retries left: none | runs retired by the operator: none
+  claude CLI versions of the runs: ['2.1.289 (Claude Code)']
+  deviations from the lab harness and from the specification are listed in eval/README.md

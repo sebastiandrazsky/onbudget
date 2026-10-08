@@ -1,0 +1,8 @@
+2026-10-09 00:03:01 queue start/resume pid 5123 phases smoke spend $0.00 of $62.00
+2026-10-09 00:03:01 start smoke-A-tenacity-a0 (smoke, single, arm A, budget $0.28, cap $0.28)
+2026-10-09 00:04:00 done  smoke-A-tenacity-a0 cost 0.2458962 budget 0.28 ended=stopped complete=1/1 verified=0 void=False infra=False 5h=61 7d=9 spend=$0.25
+2026-10-09 00:04:01 start smoke-C-packaging-a0 (smoke, single, arm C, budget $0.46, cap $0.46)
+2026-10-09 00:06:24 done  smoke-C-packaging-a0 cost 0.22777760000000002 budget 0.46 ended=self complete=1/1 verified=0 void=False infra=False 5h=61 7d=9 spend=$0.47
+2026-10-09 00:06:24 start smoke-C-tenacity-a0 (smoke, single, arm C, budget $0.28, cap $0.28)
+2026-10-09 00:07:03 done  smoke-C-tenacity-a0 cost 0.1710572 budget 0.28 ended=self complete=1/1 verified=1 void=False infra=False 5h=62 7d=9 spend=$0.64
+2026-10-09 00:07:03 DONE: every selected slot has a usable run (spend $0.64)

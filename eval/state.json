@@ -1,0 +1,61 @@
+{
+ "seed": 20261008,
+ "ledger": {
+  "smoke-A-tenacity-a0": {
+   "slot": "smoke-A-tenacity",
+   "reserved": 1.28,
+   "cost": 0.2458962,
+   "status": "done",
+   "started": "2026-10-09 00:03:01"
+  },
+  "smoke-C-packaging-a0": {
+   "slot": "smoke-C-packaging",
+   "reserved": 1.46,
+   "cost": 0.22777760000000002,
+   "status": "done",
+   "started": "2026-10-09 00:04:01"
+  },
+  "smoke-C-tenacity-a0": {
+   "slot": "smoke-C-tenacity",
+   "reserved": 1.28,
+   "cost": 0.1710572,
+   "status": "done",
+   "started": "2026-10-09 00:06:24"
+  }
+ },
+ "exhausted": [],
+ "order": {
+  "smoke": [
+   "smoke-A-tenacity",
+   "smoke-C-packaging",
+   "smoke-C-tenacity"
+  ],
+  "main-tight": [
+   "tight-B-1",
+   "tight-A-1",
+   "tight-C-2",
+   "tight-C-1",
+   "tight-A-2",
+   "tight-B-2"
+  ],
+  "main-hard": [
+   "hard-C-1",
+   "hard-A-1",
+   "hard-B-2",
+   "hard-B-1",
+   "hard-A-2",
+   "hard-C-2"
+  ],
+  "pct": [
+   "pct-C-1"
+  ],
+  "extra": [
+   "extra-tight-C-1",
+   "extra-pct-B-1"
+  ]
+ },
+ "current": null,
+ "selection": "smoke",
+ "ceiling": 62.0,
+ "claude_version": "2.1.289 (Claude Code)"
+}

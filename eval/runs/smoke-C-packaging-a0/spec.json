@@ -1,0 +1,22 @@
+{
+ "phase": "smoke",
+ "mode": "single",
+ "arm": "C",
+ "level": "SMOKE",
+ "task": "packaging",
+ "usd": 0.46,
+ "raw": "$0.46",
+ "run_id": "smoke-C-packaging-a0",
+ "slot": "smoke-C-packaging",
+ "attempt": 0,
+ "names": [
+  "packaging"
+ ],
+ "plugins": [
+  "onbudget"
+ ],
+ "cwd": "/Users/user/Documents/.onbudget-eval-work/smoke-C-packaging-a0/ws/packaging",
+ "started": "2026-10-09T00:04:02",
+ "wall_s": 90.2,
+ "killed": null
+}

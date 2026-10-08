@@ -1,0 +1,4 @@
+{"ts": 1791497200.771254, "task": "tenacity", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/smoke-C-tenacity-a0/ws/tenacity"}
+{"ts": 1791497209.584566, "task": "tenacity", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/smoke-C-tenacity-a0/ws/tenacity"}
+{"ts": 1791497209.6618612, "task": "tenacity", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/smoke-C-tenacity-a0/ws/tenacity"}
+{"ts": 1791497209.83451, "task": "tenacity", "argv": ["pytest", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/smoke-C-tenacity-a0/ws/tenacity"}
