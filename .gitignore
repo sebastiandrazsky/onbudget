@@ -1,0 +1,11 @@
+.DS_Store
+__pycache__/
+*.pyc
+# Engine-written type declarations (regenerated at every load)
+.claude-plugin/types/
+# Full raw run directories stay on disk; only the light per-run files are committed (see eval/README.md)
+eval/runs/*/ws/
+eval/runs/*/transcript/
+eval/runs/*/home/
+eval/*.nohup
+eval/tmp/

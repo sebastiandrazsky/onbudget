@@ -1,0 +1,1 @@
+{ "name": "capmod", "version": "0.1.0", "description": "Evaluation only: a silent external spending cap for the baseline arms. Refuses model requests once CAP_USD cannot cover them and logs every request. Changes nothing the model can see." }

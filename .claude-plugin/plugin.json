@@ -1,0 +1,29 @@
+{
+  "name": "onbudget",
+  "version": "0.1.0",
+  "description": "Run a task under a usage budget: /onbudget $3 <task>, /onbudget 10% 5h <task>, /onbudget 5% week <task>. Meters the task's own spend, shows it to Claude, and refuses requests the budget cannot cover.",
+  "author": { "name": "Sebastian Drazsky" },
+  "license": "MIT",
+  "keywords": ["budget", "usage", "cost", "rate-limit", "function-hooks"],
+  "userConfig": {
+    "effort": {
+      "type": "string",
+      "title": "Effort cap while a budget is set",
+      "description": "Requests sent under a budget have their reasoning effort lowered to this level (never raised). keep leaves your effort setting alone.",
+      "default": "medium",
+      "options": ["low", "medium", "high", "keep"]
+    },
+    "usdPerPoint5h": {
+      "type": "number",
+      "title": "Dollars per point, 5-hour window",
+      "description": "Optional. List-price dollars of usage that move your 5-hour usage window by one percentage point. 0 means learn it from this account's own readings.",
+      "default": 0
+    },
+    "usdPerPointWeek": {
+      "type": "number",
+      "title": "Dollars per point, weekly window",
+      "description": "Optional. List-price dollars of usage that move your weekly usage window by one percentage point. 0 means learn it from this account's own readings.",
+      "default": 0
+    }
+  }
+}

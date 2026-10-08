@@ -1,0 +1,16 @@
+{
+  "name": "onbudget",
+  "owner": { "name": "Sebastian Drazsky" },
+  "metadata": { "description": "onbudget: run a Claude Code task under a usage budget", "version": "0.1.0" },
+  "plugins": [
+    {
+      "name": "onbudget",
+      "source": "./",
+      "description": "Run a task under a usage budget: dollars, or a share of your 5-hour or weekly usage window.",
+      "version": "0.1.0",
+      "author": { "name": "Sebastian Drazsky" },
+      "category": "productivity",
+      "keywords": ["budget", "usage", "cost", "rate-limit"]
+    }
+  ]
+}
