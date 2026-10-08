@@ -1,0 +1,1 @@
+{ "name": "mock", "version": "0.1.0", "description": "Test double for onbudget's end-to-end tests: answers every model request from a script, so nothing is sent and nothing is spent, and reports a scripted cost ledger and usage windows." }

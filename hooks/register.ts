@@ -139,18 +139,26 @@ async function rateFor($: Engine, kind: WindowKind): Promise<Rate | null> {
   return poolRate([...(await otherRecords($)), ...(own ? [own] : [])], kind, await $.session.model(), await $.clock.now())
 }
 
-/** Extends this session's calibration records with the readings just taken. Runs in every session. */
-async function calibrate($: Engine, readings: readonly Reading[], ledger: number): Promise<void> {
+/** Extends this session's calibration records with a reading and the ledger beside it; the windows that grew. */
+function noteCalibration(readings: readonly Reading[], ledger: number): WindowKind[] {
+  const grew: WindowKind[] = []
   for (const kind of WINDOWS) {
     const r = readings.find(x => x.kind === kind)
     if (!r || !Number.isFinite(r.percentUsed)) continue
     const c = (cal[kind] ??= { rec: { kind, model: '', usd: 0, points: 0, at: 0 }, mark: null })
     const before = c.rec.usd + c.rec.points
     c.mark = extendCalibration(c.rec, c.mark, r.percentUsed, ledger)
-    if (c.rec.usd + c.rec.points === before) continue
-    c.rec.model = await $.session.model()
-    c.rec.at = await $.clock.now()
-    await $.store.set(`cal:${kind}:${sid}`, c.rec)
+    if (c.rec.usd + c.rec.points !== before) grew.push(kind)
+  }
+  return grew
+}
+
+async function saveCalibration($: Engine, kinds: readonly WindowKind[]): Promise<void> {
+  for (const kind of kinds) {
+    const rec = cal[kind]!.rec
+    rec.model = await $.session.model()
+    rec.at = await $.clock.now()
+    await $.store.set(`cal:${kind}:${sid}`, rec)
   }
 }
 
@@ -214,6 +222,20 @@ async function command($: Engine, args: string): Promise<{ say: string; prompt?:
   }
 }
 
+/**
+ * Submits the task once the command's own hook has returned: the engine refuses a prompt submitted from inside
+ * it (the prompt would wait on the command). In a headless run the session may not be ready for a moment after
+ * the command, so a refused submit is tried again a few times before it is given up and logged.
+ */
+function submitLater($: Engine, text: string, attempt: number): void {
+  $.clock.after(attempt === 0 ? 1 : 50 * 2 ** attempt, () => {
+    void $.prompt.submit({ text, asUser: true }).catch((err: unknown) => {
+      if (attempt < 5) submitLater($, text, attempt + 1)
+      else void log($, 'hookfail', { where: 'prompt.submit.call', error: errText(err) })
+    })
+  })
+}
+
 /** The made-up response that stands in for a request that is not sent. */
 async function* refuse(e: TurnStepInput, text: string): AsyncGenerator<any, TurnStepResult> {
   yield { kind: 'text', index: 0, text }
@@ -241,12 +263,7 @@ export const register: Register = (on, options) => {
     try {
       await ready($)
       const out = await command($, e.args)
-      if (out.prompt !== undefined) {
-        // The engine refuses a prompt submitted from inside a command's own hook (it would wait on the command),
-        // so the task is submitted from a timer, once this hook has returned.
-        const text = out.prompt
-        $.clock.after(1, () => { void $.prompt.submit({ text, asUser: true }).catch((err: unknown) => log($, 'hookfail', { where: 'prompt.submit.call', error: errText(err) })) })
-      }
+      if (out.prompt !== undefined) submitLater($, out.prompt, 0)
       return { text: out.say }
     } catch (err) {
       await log($, 'hookfail', { where: 'command.run', error: errText(err) })
@@ -305,14 +322,15 @@ export const register: Register = (on, options) => {
     let r: TurnStepResult
     try { r = yield* next(ev) } finally { inFlight -= 1 }
     try {
-      const { ledger, usage, stepCost } = await sync($, (ledger, usage) => {
+      const { ledger, usage, stepCost, grew } = await sync($, (ledger, usage) => {
         // Requests complete one at a time, so the ledger's growth since the last completion is this request's
         // own cost, whatever else is still in flight.
         const stepCost = Math.max(0, ledger - stepMark)
         stepMark = ledger
         if (budget === b) observeWindow(b, usage.rateLimits) // the reading that came with this answer
-        return { ledger, usage, stepCost }
+        return { ledger, usage, stepCost, grew: noteCalibration(usage.rateLimits, ledger) }
       })
+      await saveCalibration($, grew)
       if (budget === b) {
         if (stepCost > b.maxStep) b.maxStep = stepCost
         b.steps += 1
@@ -357,8 +375,7 @@ export const register: Register = (on, options) => {
   on('session.measure', async ($, e, next) => {
     try {
       await ready($)
-      const { ledger, usage } = await sync($, (ledger, usage) => ({ ledger, usage }))
-      await calibrate($, usage.rateLimits, ledger)
+      await saveCalibration($, await sync($, (ledger, usage) => noteCalibration(usage.rateLimits, ledger)))
       const b = budget
       if (b && b.usd === null && b.spec.kind === 'pct') {
         const rate = await rateFor($, b.spec.window)
