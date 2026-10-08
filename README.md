@@ -62,9 +62,9 @@ Follow-up prompts draw on the same budget. `/onbudget off` removes it, and `/onb
 /onbudget 5% week Fix these bugs
 ```
 
-Claude Code reports your usage windows as whole percentage points for the whole account. A point is worth a different number of dollars on every plan, so onbudget learns the rate from your own account: in every session where the plugin is loaded it records how far each window moved and how much the session cost. Once it has seen three points of movement it converts a percentage budget into dollars and enforces the dollars, which are exact. `/onbudget` shows the rate it has learned.
+Claude Code reports your usage windows as whole percentage points for the whole account. A point is worth a different number of dollars on every plan, so onbudget learns the rate from your own usage: in every session where the plugin is loaded it records how far each window moved and how much the session cost. A percentage budget set after it has seen three points of movement is converted into dollars at that rate, and the dollars are enforced exactly as a dollar budget is. `/onbudget` shows the rate it has learned.
 
-Before it has a rate, it enforces the budget on the window reading itself. That works, but coarsely: the reading is in whole points, it lags by one request, and it counts everything on the account, including your other sessions. For that reason the smallest percentage budget without a learned rate is 3%, and onbudget tells you which mode a budget is in when you set it.
+A percentage budget set before a rate is known is enforced on the window reading itself, and keeps that rule until it ends. That works, but coarsely: the reading is in whole points, it lags by one request, and it counts everything on the account, including your other sessions. The smallest budget in this mode is 3%. It also stops if the window fills up or stops being reported, because then the reading can no longer show what the task uses. onbudget tells you which mode a budget is in when you set it.
 
 If you already know your rate you can set it in the plugin's options instead of waiting (see Configuration).
 
@@ -75,7 +75,7 @@ ONBUDGET='$3' claude -p "Implement authentication"
 ONBUDGET='10% 5h' claude -p "Build this application"
 ```
 
-`ONBUDGET` applies to the first prompt of the session. If the value cannot be used, the prompt is dropped with the reason; the task is not run without its budget. When the budget stops a headless run, the run's result is the plugin's notice, which begins `[onbudget] Stopped:`.
+`ONBUDGET` applies to the first prompt of the session, once. If the value cannot be used, the prompt is dropped with the reason; the task is not run without its budget. When the budget stops a headless run, the run's result is the plugin's notice, which begins `[onbudget] Stopped:`.
 
 ## How it works
 
@@ -85,7 +85,7 @@ Spend is the growth of the session's own cost ledger since the budget was set. T
 
 ### The reserve
 
-A request cannot be priced before it is sent, so the plugin holds back what the dearest request so far has cost. The stop rule is: refuse when `spent + reserve × (requests in flight + 1) ≥ budget`. Subagents run requests beside the main thread, and each one in flight may still cost a reserve. Each request is charged the ledger's growth since the previous request completed, so overlapping requests are not charged for each other.
+A request cannot be priced before it is sent, so the plugin holds back what the dearest request so far has cost. The stop rule is: refuse when `spent + reserve × (requests in flight + 1) ≥ budget`. Subagents run requests beside the main thread, and each one in flight may still cost a reserve. Each request is charged the ledger's growth since the previous request completed, and no more than its growth since the request was sent, so a request is not charged for the ones that ran beside it or for what was spent between requests.
 
 ### The meter and the protocol
 
@@ -99,17 +99,17 @@ Each request's effort is lowered to the cap and never raised. Nothing in your se
 
 It reads the session's cost and usage-window readings, the session id and model, three environment variables (`ONBUDGET`, `ONBUDGET_EFFORT`, `ONBUDGET_LOG`), and its own store.
 
-It writes its own store, a JSON file under your Claude config directory (`plugins/store/onbudget_*.json`): the budget of each session that has one, and one calibration record per session and window (dollars spent and points moved, nothing else). Records older than 30 days are deleted. It writes a status line. If `ONBUDGET_LOG` names a file, it writes an event log there; otherwise it logs nothing.
+It writes its own store, a JSON file under your Claude config directory (`plugins/store/onbudget_*.json`): the budget of each session that has one, and calibration records (dollars spent and points moved per session, window and model, nothing else). Records older than 30 days are deleted. It writes a status line. If `ONBUDGET_LOG` names a file, it writes an event log there; otherwise it logs nothing.
 
 While a budget is set, and only then, it changes three things: the effort of each request, one line of context after each tool result and with each follow-up prompt, and whether a request is sent at all. With no budget set every hook passes its event through untouched.
 
-The whole plugin is two files, `hooks/core.ts` (the logic) and `hooks/register.ts` (the hooks), about 700 lines together.
+The whole plugin is two files, `hooks/core.ts` (the logic) and `hooks/register.ts` (the hooks), about 850 lines together.
 
 ## Limitations
 
 ### The stop is a reserve, and a request can exceed it
 
-The API offers no way to cap what one request costs, and a request can cost more than any before it. The usual cause is a long idle period: the first request afterwards re-reads the whole conversation at the cache-write price. When that happens the budget is overrun by that one request, and the plugin stops at the next one and reports the real figure. Requests already in flight when the budget stops are not cancelled.
+The API offers no way to cap what one request costs, and a request can cost more than any before it. The usual cause is a long idle period: the first request afterwards re-reads the whole conversation at the cache-write price. When that happens the budget is overrun by that one request, and the plugin stops at the next one and reports the real figure. Requests already in flight when the budget stops are not cancelled. A compaction's own model request is sent by Claude Code and is not checked; its cost is counted.
 
 ### The stop falls between requests
 
@@ -125,7 +125,9 @@ The protocol tells Claude not to skip checks to save money and to do fewer thing
 
 ### Percentage budgets rest on an estimate
 
-Claude Code does not expose what a percentage point costs. The learned rate errs low on purpose, so a percentage budget buys somewhat less than its nominal share, more so on a new install with little data. Other sessions on the account push the rate lower still. The rate is learned per model; a list-price dollar is assumed to move the window equally whatever the request. If your plan changes, the old rate is wrong until new readings outweigh it; as a backstop the plugin stops when the window has moved more than twice the budgeted points. Accounts that report no usage window (API keys, gateways) cannot use percentage budgets at all.
+Claude Code does not expose what a percentage point costs. The learned rate errs low on purpose, so a percentage budget buys somewhat less than its nominal share, more so on a new install with little data. Other sessions on the account push the rate lower still. The rate is learned per model; a list-price dollar is assumed to move the window equally whatever the request.
+
+The rate belongs to the machine's Claude config directory, not to an account. If your plan changes, or you log in to another account, the old rate is wrong until new readings outweigh it or you delete the store file. As a backstop the plugin stops a converted budget when the window has moved more than twice the budgeted points. Accounts that report no usage window (API keys, gateways) cannot use percentage budgets at all.
 
 ### Dollar figures are list prices
 
@@ -135,9 +137,13 @@ On a subscription you are not billed these dollars. They are the unit Claude Cod
 
 Function hooks may change between Claude Code releases without notice. `claude plugin validate .` and `claude plugin test .` in this repository tell you whether a new build still accepts the plugin.
 
+### Effort given as a number
+
+The cap applies to the named effort levels. A request whose effort is a number (some agent definitions set one) is sent unchanged.
+
 ### Not verified
 
-Windows and Linux, the VS Code and mobile surfaces, the desktop app's Code tab, models other than Claude Opus 5.5 and Sonnet 5.5, teammates and workflow agents, and sessions longer than a few hundred requests have not been tested.
+Windows and Linux, the VS Code and mobile surfaces, the desktop app's Code tab, models other than Claude Opus 5.5, teammates and workflow agents, and sessions longer than a few hundred requests have not been tested. Switching sessions with `/resume` inside a running session is covered by the engine-level tests only, not by a real terminal run.
 
 ## Configuration
 
