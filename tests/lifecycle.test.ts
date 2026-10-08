@@ -4,7 +4,9 @@ import { world, step, start, run, prompt, tool, measure, compact, rows, LOG } fr
 
 const near = (got: number, want: number) => expect(Math.abs(got - want) < 1e-9 ? 'near' : `${got} is not ${want}`).toBe('near')
 const NOW = 1_700_000_000_000
-const cal = (kind: string, usd: number, points: number, model = 'claude-opus-5-5') => ({ kind, model, usd, points, at: NOW - 1000 })
+const DAY = Math.floor(NOW / 86_400_000)
+const cal = (kind: string, usd: number, points: number, model = 'claude-opus-5-5') => ({ kind, model, usd, points, segments: 1, at: NOW - 1000 })
+const calKey = (session: string, kind = 'five_hour', model = 'claude-opus-5-5', day = DAY) => `cal:${kind}:${day}:${session}:${model}`
 const fiveHour = (percentUsed: number) => [{ kind: 'five_hour', percentUsed, resetsAt: '2026-10-08T22:10:00.000Z' }, { kind: 'seven_day', percentUsed: 4 }]
 
 describe('without the slash command (headless, SDK hosts)', () => {
@@ -84,14 +86,35 @@ describe('percentage budgets', () => {
     const w = world(on)
     await start($)
     await run($, '5% week task')
-    await step($)
-    await step($)
+    for (let i = 0; i < 3; i++) await step($)
+    const s = await step($)
+    expect(w.requests.length).toBe(3)
+    expect(s.result.answer).toContain('the weekly usage window is not being reported in this session')
+    expect((await run($, '')).text).toContain('STOPPED (the usage window is not being reported)')
+  })
+  test('a request that got no answer does not count as an answer without a reading', async ($, on) => {
+    const w = world(on)
+    await start($)
+    await run($, '5% week task')
+    w.reply = () => ({ none: true }) // interrupted or failed before any response
+    for (let i = 0; i < 6; i++) await step($)
+    w.reply = () => ({ cost: 0.1 })
+    expect((await step($)).result.answer).toBe('ok')
+    expect(w.requests.length).toBe(7)
+  })
+  test('a full window stops an unconverted budget: its reading can no longer move', async ($, on) => {
+    const w = world(on)
+    await start($)
+    await run($, '30% 5h task')
+    const answers = [98, 100]
+    w.reply = () => { w.readings = fiveHour(answers.shift()!); return { cost: 0.5 } }
+    await step($); await step($)
     const s = await step($)
     expect(w.requests.length).toBe(2)
-    expect(s.result.answer).toContain('this account reports no weekly usage window')
+    expect(s.result.answer).toContain('the 5-hour usage window is full')
   })
   test('with a calibration it is converted to dollars at the learned rate, which errs low', async ($, on) => {
-    const w = world(on, { env: LOG, store: { 'cal:five_hour:older-1': cal('five_hour', 19.4, 20), 'cal:five_hour:older-2': cal('five_hour', 9.7, 10) } })
+    const w = world(on, { env: LOG, store: { [calKey('older-1')]: cal('five_hour', 19.4, 20), [calKey('older-2')]: cal('five_hour', 9.7, 10) } })
     w.readings = fiveHour(20)
     await start($)
     const out = await run($, '4% 5h task')
@@ -101,7 +124,7 @@ describe('percentage budgets', () => {
     near(b.rate.usdPerPoint, rate)
     near(b.usd, Math.round(4 * rate * 10000) / 10000)
     expect(out.text).toContain(`budget $${(4 * rate).toFixed(2)} (4% of the 5-hour usage window) set`)
-    expect(out.text).toContain('learned on this account from 30 points')
+    expect(out.text).toContain('learned from 30 points of movement')
     w.reply = () => ({ cost: 1.3 })
     await step($); await step($) // 2.60 spent, dearest 1.30: the next would cross 3.74
     const s = await step($)
@@ -109,7 +132,7 @@ describe('percentage budgets', () => {
     expect(s.result.answer).toContain('Stopped: $2.60 of $3.74 (4% of the 5-hour usage window) is used')
   })
   test('the reading backstops a calibration gone wrong: more than twice the budget moved', async ($, on) => {
-    const w = world(on, { store: { 'cal:five_hour:older-1': cal('five_hour', 29.1, 30) } })
+    const w = world(on, { store: { [calKey('older-1')]: cal('five_hour', 29.1, 30) } })
     await start($)
     await run($, '4% 5h task')
     const answers = [50, 58, 59] // 8 points is twice the budget and still tolerated; 9 is not
@@ -120,7 +143,7 @@ describe('percentage budgets', () => {
     expect(s.result.answer).toContain('has moved 9 points since the budget started, more than twice the 4 budgeted')
   })
   test('a calibration for another model is not used', async ($, on) => {
-    const w = world(on, { store: { 'cal:five_hour:older-1': cal('five_hour', 29.1, 30, 'claude-haiku-5-5') } })
+    const w = world(on, { store: { [calKey('older-1', 'five_hour', 'claude-haiku-5-5')]: cal('five_hour', 29.1, 30, 'claude-haiku-5-5') } })
     await start($)
     expect((await run($, '2% 5h task')).text).toContain('cannot enforce 2% 5h yet')
   })
@@ -137,21 +160,17 @@ describe('percentage budgets', () => {
     await start($)
     expect((await run($, '10% 5h task')).text).toContain('the window is already at 96%')
   })
-  test('an unconverted budget is converted as soon as this session has seen enough movement', async ($, on) => {
-    const w = world(on, { env: LOG })
+  test('a budget set without a conversion keeps the rule it was set with; what the session learns serves the next one', async ($, on) => {
+    const w = world(on)
     await start($)
     await run($, '10% 5h task')
-    const answers = [30, 31, 33]
+    const answers = [30, 31, 33, 35]
     w.reply = () => { w.readings = fiveHour(answers.shift()!); return { cost: 1 } }
-    await step($); await measure($, w)
-    await step($); await measure($, w)
-    expect(rows(w, 'calibrated').length).toBe(0) // one point seen so far: not enough to convert
-    expect((await tool($)).context[0]).toContain('has moved 1 of 10 points')
-    await step($); await measure($, w) // three points for two dollars since the first reading
-    const c = rows(w, 'calibrated')[0]
-    near(c.rate.usdPerPoint, 2 / (3 + 2 * 0.41))
-    near(c.usd, Math.round(10 * c.rate.usdPerPoint * 10000) / 10000)
-    expect((await tool($)).context[0]).toContain('spent $3.00 of $5.24 (10% of the 5-hour usage window)')
+    for (let i = 0; i < 4; i++) { await step($); await measure($, w) }
+    expect((await tool($)).context[0]).toBe('[budget] the 5-hour usage window has moved 5 of 10 points | remaining 50% | tier MEDIUM')
+    const next = await run($, '10% 5h another task')
+    expect(next.text).toContain('(10% of the 5-hour usage window) set')
+    expect(next.text).toContain('learned from 5 points of movement')
   })
 })
 
@@ -164,18 +183,35 @@ describe('calibration, in every session', () => {
     w.cost = 4; w.readings = fiveHour(1); await measure($, w) // the window reset: this span is left out
     w.cost = 6; w.readings = fiveHour(3); await measure($, w)
     const status = (await run($, '')).text
-    expect(status).toContain('calibration, 5-hour window: 1 point ≈ $0.83 (4 points observed in 1 session)')
+    expect(status).toContain('calibration, 5-hour window: 1 point ≈ $0.78 (4 points observed in 1 session)') // 4 dollars over 4 points in two segments
     expect(status).toContain('calibration, weekly window: not enough data yet')
     await step($, { effort: 'xhigh' })
     expect(w.requests[0].effort).toBe('xhigh')
   })
-  test('old records are deleted, recent ones from other sessions are pooled', async ($, on) => {
-    const old = { ...cal('five_hour', 100, 100), at: NOW - 31 * 24 * 3600 * 1000 }
-    const w = world(on, { store: { 'cal:five_hour:ancient': old, 'cal:five_hour:recent': cal('five_hour', 9.7, 10), 'unrelated': 1 } })
+  test('old records are deleted by the day in their key, recent ones from other sessions are pooled', async ($, on) => {
+    const w = world(on, { store: { [calKey('ancient', 'five_hour', 'claude-opus-5-5', DAY - 31)]: cal('five_hour', 100, 100), [calKey('recent')]: cal('five_hour', 9.7, 10), 'unrelated': 1 } })
     await start($)
     const status = (await run($, '')).text
     expect(status).toContain('1 point ≈ $0.90 (10 points observed in 1 session)')
-    expect([...w.store.keys()].sort()).toEqual(['cal:five_hour:recent', 'unrelated'])
+    expect([...w.store.keys()].sort()).toEqual([calKey('recent'), 'unrelated'])
+  })
+  test('a change of model starts a record of its own; one model\'s rate is not another\'s', async ($, on) => {
+    const w = world(on)
+    await start($)
+    w.cost = 0; w.readings = fiveHour(10); await measure($, w)
+    w.cost = 5; w.readings = fiveHour(15); await measure($, w)
+    w.model = 'claude-sonnet-5-5'
+    w.cost = 6; w.readings = fiveHour(19); await measure($, w) // began on the other model: not counted for either
+    w.cost = 7; w.readings = fiveHour(23); await measure($, w)
+    expect(w.store.get(calKey('session-1'))).toEqual({ ...cal('five_hour', 5, 5), at: NOW })
+    expect(w.store.get(calKey('session-1', 'five_hour', 'claude-sonnet-5-5'))).toEqual({ ...cal('five_hour', 1, 4, 'claude-sonnet-5-5'), at: NOW })
+    expect((await run($, '')).text).toContain('1 point ≈ $0.21 (4 points observed in 1 session)')
+  })
+  test('stale budgets and flags of other sessions are deleted after 30 days without use', async ($, on) => {
+    const old = NOW - 31 * 86_400_000
+    const w = world(on, { store: { 'budget:gone': { v: 1, spec: { kind: 'usd', usd: 1 }, spent: 0, ledger: 0, startedAt: old - 5, savedAt: old }, 'env:gone': { at: old }, 'budget:kept': { v: 1, spec: { kind: 'usd', usd: 1 }, spent: 0, ledger: 0, startedAt: old, savedAt: NOW - 1000 } } })
+    await start($)
+    expect([...w.store.keys()]).toEqual(['budget:kept'])
   })
 })
 
@@ -256,6 +292,108 @@ describe('what a budget survives', () => {
     const kept: any = w.store.get('budget:session-1')
     near(kept.spent, 0.1)
     expect(kept.state).toBe('active')
+  })
+})
+
+describe('a process that moves to another session (/resume inside a session)', () => {
+  const stored = (over: Record<string, unknown> = {}) => ({
+    v: 1, raw: '$9', spec: { kind: 'usd', usd: 9 }, task: 'the other task', usd: 9, rate: null, spent: 0.5, ledger: 0, maxStep: 0.1, steps: 3, refused: 0,
+    state: 'active', effortCap: 'keep', remind: false, startedAt: NOW - 5000, savedAt: NOW - 4000, ...over,
+  })
+  const resumeTo = async ($: any, w: any, sid: string) => {
+    await $.session.end({ reason: 'resume', sessionId: w.sid, resume: { id: w.sid } })
+    w.sid = sid
+  }
+  test('into a session with a budget of its own: that budget applies, and is charged only what it spends', async ($, on) => {
+    const w = world(on, { store: { 'budget:session-2': stored() } })
+    await start($)
+    await run($, '$1 first task')
+    w.reply = () => ({ cost: 0.3 })
+    await step($)
+    await resumeTo($, w, 'session-2')
+    w.reply = () => ({ cost: 0.1 })
+    await step($, { effort: 'xhigh' })
+    expect(w.requests[1].effort).toBe('xhigh') // session-2's budget keeps effort
+    expect((await tool($)).context).toEqual(['[budget] spent $0.60 of $9.00 | remaining 93% | tier HIGH'])
+    near((w.store.get('budget:session-1') as any).spent, 0.3)
+    near((w.store.get('budget:session-2') as any).spent, 0.6)
+  })
+  test('into a session whose budget had stopped: its requests are refused', async ($, on) => {
+    const stop = { event: 'reserve-stop', spent: 8.95, reserve: 0.1, budget: 9, inFlight: 0 }
+    const w = world(on, { store: { 'budget:session-2': stored({ state: 'stopped', stop, spent: 8.95 }) } })
+    await start($)
+    await step($)
+    await resumeTo($, w, 'session-2')
+    const s = await step($)
+    expect(w.requests.length).toBe(1)
+    expect(s.result.answer).toContain('[onbudget] Stopped')
+  })
+  test('into a session with no budget: nothing of the old one follows', async ($, on) => {
+    const w = world(on)
+    await start($)
+    await run($, '$1 first task')
+    await step($)
+    await resumeTo($, w, 'session-2')
+    await step($, { effort: 'xhigh' })
+    expect(w.requests[1].effort).toBe('xhigh')
+    expect(await tool($)).toEqual({ result: 'tool output', text: 'tool output' })
+    expect(w.status[w.status.length - 1]).toBe(undefined)
+    expect((w.store.get('budget:session-1') as any).state).toBe('active') // kept for when that session is resumed
+  })
+  test('a session change nothing announced is noticed at the next prompt', async ($, on) => {
+    const w = world(on)
+    await start($)
+    await run($, '$1 first task')
+    await step($)
+    w.sid = 'session-2'
+    const p = await prompt($, 'a prompt in the other session')
+    expect(p.context).toBe(undefined)
+    await step($, { effort: 'xhigh' })
+    expect(w.requests[1].effort).toBe('xhigh')
+    near((w.store.get('budget:session-1') as any).spent, 0.1)
+  })
+})
+
+describe('percentage budgets across processes', () => {
+  const pct = (over: Record<string, unknown> = {}) => ({
+    v: 1, raw: '5% 5h', spec: { kind: 'pct', window: 'five_hour', points: 5 }, task: 't', usd: null, rate: null, spent: 2, ledger: 2, maxStep: 0.5, steps: 4, refused: 0,
+    state: 'active', window: { kind: 'five_hour', last: 40, moved: 2, blind: 0 }, effortCap: 'medium', remind: false, startedAt: NOW - 5000, ...over,
+  })
+  test('an unconverted budget keeps its baseline: the window\'s movement counts whichever process saw it', async ($, on) => {
+    const w = world(on, { store: { 'budget:session-1': pct() } })
+    await start($)
+    w.reply = () => { w.readings = fiveHour(43); return { cost: 0.1 } }
+    await step($) // the reading that came with it: 40 -> 43, five points moved in all
+    const s = await step($)
+    expect(w.requests.length).toBe(1)
+    expect(s.result.answer).toContain('has moved 5 points since the budget started (5 budgeted)')
+  })
+  test('a converted budget starts a new baseline: what the window did while the session was away is not held against it', async ($, on) => {
+    const w = world(on, { store: { 'budget:session-1': pct({ usd: 4, rate: { usdPerPoint: 0.8, points: 30, intervals: 3, source: 'learned' } }) } })
+    await start($)
+    const answers = [90, 91]
+    w.reply = () => { w.readings = fiveHour(answers.shift()!); return { cost: 0.1 } }
+    await step($); await step($)
+    expect((await run($, '')).text).toContain('5-hour window: at 91%, moved 3 points since the budget started')
+  })
+})
+
+describe('ONBUDGET, once', () => {
+  test('/onbudget off cancels a pending ONBUDGET, and a reload does not arm it again', async ($, on) => {
+    const w = world(on, { env: { ONBUDGET: '$1' } })
+    await start($)
+    expect((await run($, '')).text).toContain('pending: ONBUDGET=$1 applies to the next prompt')
+    expect((await run($, 'off')).text).toContain('the budget in ONBUDGET was cancelled')
+    expect((await prompt($, 'just a question', 'sdk')).text).toBe('just a question')
+    await step($, { effort: 'xhigh' })
+    expect(w.requests[0].effort).toBe('xhigh')
+    expect(w.store.has('env:session-1')).toBe(true)
+  })
+  test('a session that already used its ONBUDGET does not get it again after the budget is removed', async ($, on) => {
+    const w = world(on, { env: { ONBUDGET: '$1' }, store: { 'env:session-1': { at: NOW - 1000 } } })
+    await start($)
+    expect((await prompt($, 'after a reload', 'sdk')).text).toBe('after a reload')
+    expect(w.requests.length).toBe(0)
   })
 })
 

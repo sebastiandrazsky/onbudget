@@ -73,7 +73,8 @@ export const register: Register = on => {
   on('turn.step', async function* ($, e, next) {
     await ready($)
     if (!(cap > 0)) throw new Error('CAP_USD is not set')
-    const spent = (await read($, ledger => ledger)) - base
+    const sentAt = await read($, ledger => ledger)
+    const spent = sentAt - base
     const reserve = maxStep > 0 ? maxStep : BOOTSTRAP_RESERVE_USD
     if (stopped || spent + reserve * (inFlight + 1) >= cap) {
       stopped = true
@@ -86,7 +87,8 @@ export const register: Register = on => {
     try { r = yield* next(e) } finally { inFlight -= 1 }
     try {
       const { ledger, usage, stepCost } = await read($, (ledger, usage) => {
-        const stepCost = Math.max(0, ledger - stepMark)
+        // As in onbudget: the ledger's growth since the last request completed, and no more than since this one was sent.
+        const stepCost = Math.max(0, Math.min(ledger - stepMark, ledger - sentAt))
         stepMark = ledger
         if (stepCost > maxStep) maxStep = stepCost
         return { ledger, usage, stepCost }

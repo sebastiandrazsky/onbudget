@@ -131,7 +131,7 @@ def main_session():
           [x['effort'] for x in s.mock('step')] == ['medium'] * 3 and [t['injected'].split('|')[0].strip() for t in s.rows('tool')] == ['[budget] spent $0.30 of $1.00', '[budget] spent $0.60 of $1.00', '[budget] spent $0.90 of $1.00'],
           f"{s.mock('step')} {s.rows('tool')}")
     check('interactive: the fourth request is refused and the notice is on screen', ok and len(s.mock('step')) == 3 and s.shows('[onbudget] Stopped: $0.90 of $1.00 is used'), s.screen()[-600:])
-    check('interactive: the status line shows the spent budget', s.shows('onbudget: budget spent ($0.90 of $1.00)') and not s.shows('onbudget: onbudget:'), s.screen()[-600:])
+    check('interactive: the status line shows the spent budget', s.shows('onbudget: stopped at $0.90 of $1.00') and not s.shows('onbudget: onbudget:'), s.screen()[-600:])
 
     s.mark(); s.type('continue please')
     check('interactive: a follow-up prompt on a spent budget is refused too, with the notice', s.wait(lambda: len(s.rows('stop')) == 2, 20) and len(s.mock('step')) == 3 and s.shows('[onbudget] Stopped'), s.screen()[-500:])

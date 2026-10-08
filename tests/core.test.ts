@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'claude-code/testing'
 import {
-  type Budget, type CalRecord, BOOTSTRAP_RESERVE_USD, CAL_MAX_AGE_MS, NAME,
-  cappedEffort, extendCalibration, fold, meterLine, observeWindow, parseCommand, poolRate, protocol, refusalText, remaining, stopCheck, tierOf,
+  type Budget, type CalMark, type CalRecord, BOOTSTRAP_RESERVE_USD, DAY_MS, MAX_AGE_DAYS, NAME,
+  cappedEffort, extendCalibration, fold, meterLine, observeWindow, parseCommand, poolRate, protocol, refusalText, remaining, stepCostOf, stopCheck, stopLabel, tierOf,
 } from '../hooks/core.ts'
 
 const near = (got: number, want: number) => expect(Math.abs(got - want) < 1e-9 ? 'near' : `${got} is not ${want}`).toBe('near')
@@ -70,6 +70,16 @@ describe('the ledger', () => {
   })
 })
 
+describe('what one request cost', () => {
+  test('the ledger growth since the last request completed', () => {
+    near(stepCostOf(1.5, 1.2, 0.2), 0.3) // sent long ago; others completed meanwhile and are not charged to it
+  })
+  test('and no more than the growth since it was sent', () => {
+    near(stepCostOf(3.1, 1.0, 3.0), 0.1) // a compaction cost 2.00 between the last completion and this request
+  })
+  test('never negative', () => { expect(stepCostOf(1, 2, 3)).toBe(0) })
+})
+
 describe('the stop', () => {
   test('before any request is priced the bootstrap reserve is held back', () => {
     expect(stopCheck(usd({ usd: 1, spent: 0 }), 0)).toBeNull()
@@ -77,16 +87,16 @@ describe('the stop', () => {
   })
   test('the dearest request seen is held back', () => {
     expect(stopCheck(usd({ spent: 3.69, maxStep: 0.3 }), 0)).toBeNull()
-    expect(stopCheck(usd({ spent: 3.7, maxStep: 0.3 }), 0)).toEqual({ event: 'reserve-stop', spent: 3.7, reserve: 0.3, budget: 4 })
+    expect(stopCheck(usd({ spent: 3.7, maxStep: 0.3 }), 0)).toEqual({ event: 'reserve-stop', spent: 3.7, reserve: 0.3, budget: 4, inFlight: 0 })
   })
   test('each request already in flight holds back a reserve of its own', () => {
     const b = usd({ spent: 3.3, maxStep: 0.3 })
     expect(stopCheck(b, 0)).toBeNull()
     expect(stopCheck(b, 1)).toBeNull()
-    expect(stopCheck(b, 2)?.event).toBe('reserve-stop') // 3.3 + 3 x 0.3 = 4.2
+    expect(stopCheck(b, 2)).toEqual({ event: 'reserve-stop', spent: 3.3, reserve: 0.3, budget: 4, inFlight: 2 }) // 3.3 + 3 x 0.3 = 4.2
   })
   test('once stopped it stays stopped', () => {
-    const stop = { event: 'reserve-stop', spent: 3.9, reserve: 0.3, budget: 4 } as const
+    const stop = { event: 'reserve-stop', spent: 3.9, reserve: 0.3, budget: 4, inFlight: 0 } as const
     expect(stopCheck(usd({ state: 'stopped', stop, spent: 0 }), 0)).toEqual(stop)
     expect(stopCheck(usd({ state: 'stopped', spent: 0 }), 0)?.event).toBe('reserve-stop')
   })
@@ -99,44 +109,73 @@ describe('the stop', () => {
     expect(stopCheck(b, 0)).toBeNull()
     b.window!.moved = 9
     expect(stopCheck(b, 0)).toEqual({ event: 'window-stop', moved: 9, points: 4, calibrated: true })
+    b.window = { kind: 'five_hour', last: 100, moved: 3, blind: 9 }
+    expect(stopCheck(b, 0)).toBeNull() // a full or unreported window does not stop a budget counted in dollars
     expect(stopCheck(pct(4, { usd: 3.2, maxStep: 0.2, spent: 3.0, window: { kind: 'five_hour', last: 42, moved: 2, blind: 0 } }), 0)?.event).toBe('reserve-stop')
   })
-  test('no reading after two answered requests: the percentage budget cannot be enforced', () => {
+  test('three answers in a row with no reading: an unconverted percentage budget cannot be checked', () => {
     const b = pct(5)
     observeWindow(b, [])
-    expect(stopCheck(b, 0)).toBeNull()
     observeWindow(b, [{ kind: 'seven_day', percentUsed: 3 }])
+    expect(stopCheck(b, 0)).toBeNull()
+    observeWindow(b, [])
     expect(stopCheck(b, 0)).toEqual({ event: 'no-reading' })
     observeWindow(b, [{ kind: 'five_hour', percentUsed: 3 }])
     expect(stopCheck(b, 0)).toBeNull()
+    for (let i = 0; i < 3; i++) observeWindow(b, []) // and the same when a window that was reported goes away
+    expect(stopCheck(b, 0)).toEqual({ event: 'no-reading' })
     const converted = pct(5, { usd: 4 })
-    observeWindow(converted, []); observeWindow(converted, []); observeWindow(converted, [])
+    for (let i = 0; i < 5; i++) observeWindow(converted, [])
     expect(stopCheck(converted, 0)).toBeNull() // converted: dollars need no reading
   })
-  test('the notice says who is speaking and that the work is unverified', () => {
+  test('a full window cannot show what an unconverted budget uses, so it stops', () => {
+    const b = pct(40)
+    observeWindow(b, [{ kind: 'five_hour', percentUsed: 97 }])
+    observeWindow(b, [{ kind: 'five_hour', percentUsed: 100 }])
+    expect(stopCheck(b, 0)).toEqual({ event: 'window-full' })
+    expect(stopLabel({ event: 'window-full' })).toBe('the usage window is full')
+  })
+  test('the notice says who is speaking, what stopped it, and that the work is unverified', () => {
     const b = usd({ spent: 3.9, maxStep: 0.3 })
     const text = refusalText(b, stopCheck(b, 0)!, false)
-    expect(text).toContain('[onbudget] Stopped: $3.90 of $4.00 is used')
+    expect(text).toContain('[onbudget] Stopped: $3.90 of $4.00 is used, and the next request could cost up to $0.30, so it was not sent.')
     expect(text).toContain('not from Claude')
     expect(text).toContain('/onbudget off')
     expect(refusalText(b, stopCheck(b, 0)!, true)).toContain('This subagent was stopped')
+    const busy = usd({ spent: 3.3, maxStep: 0.3 })
+    expect(refusalText(busy, stopCheck(busy, 2)!, false)).toContain('could cost up to $0.30, as could each of the 2 requests still running, so it was not sent')
   })
 })
 
 describe('the window', () => {
+  const at = (b: Budget) => [b.window!.last, b.window!.moved, b.window!.blind]
   test('the first reading under the budget is the baseline; movement counts from it', () => {
     const b = pct(5)
     observeWindow(b, [{ kind: 'seven_day', percentUsed: 80 }, { kind: 'five_hour', percentUsed: 40 }])
-    expect(b.window).toEqual({ kind: 'five_hour', last: 40, moved: 0, blind: 0 })
+    expect(at(b)).toEqual([40, 0, 0])
     observeWindow(b, [{ kind: 'five_hour', percentUsed: 42 }])
     observeWindow(b, [{ kind: 'five_hour', percentUsed: 42 }])
+    expect(at(b)).toEqual([42, 2, 0])
     observeWindow(b, [])
-    expect(b.window).toEqual({ kind: 'five_hour', last: 42, moved: 2, blind: 0 })
+    expect(at(b)).toEqual([42, 2, 1])
   })
-  test('a reset is counted from zero', () => {
+  test('a reset is counted from zero: seen by the reset time when readings carry one', () => {
+    const b = pct(5)
+    observeWindow(b, [{ kind: 'five_hour', percentUsed: 2, resetsAt: '2026-10-08T22:10:00.000Z' }])
+    observeWindow(b, [{ kind: 'five_hour', percentUsed: 3, resetsAt: '2026-10-09T03:10:00.327Z' }]) // a new window, already at 3
+    expect(at(b)).toEqual([3, 3, 0])
+  })
+  test('a reset is seen by a drop when readings carry no reset time', () => {
     const b = pct(5, { window: { kind: 'five_hour', last: 98, moved: 2, blind: 0 } })
     observeWindow(b, [{ kind: 'five_hour', percentUsed: 1 }])
-    expect(b.window).toEqual({ kind: 'five_hour', last: 1, moved: 3, blind: 0 })
+    expect(at(b)).toEqual([1, 3, 0])
+  })
+  test('a reading that dips inside one window is not movement', () => {
+    const b = pct(5)
+    observeWindow(b, [{ kind: 'five_hour', percentUsed: 23.5, resetsAt: '2026-10-08T22:10:00.000Z' }])
+    observeWindow(b, [{ kind: 'five_hour', percentUsed: 23.4, resetsAt: '2026-10-08T22:10:00.327Z' }])
+    observeWindow(b, [{ kind: 'five_hour', percentUsed: 24.4, resetsAt: '2026-10-08T22:10:00.000Z' }])
+    near(b.window!.moved, 1)
   })
   test('remaining follows whichever unit the budget is enforced in', () => {
     near(remaining(pct(5, { window: { kind: 'five_hour', last: 44, moved: 4, blind: 0 } })), 0.2)
@@ -145,38 +184,47 @@ describe('the window', () => {
 })
 
 describe('calibration', () => {
-  const rec = (over: Partial<CalRecord> = {}): CalRecord => ({ kind: 'five_hour', model: 'm', usd: 0, points: 0, at: 1000, ...over })
-  test('a span between two readings adds its dollars and its points', () => {
+  const rec = (over: Partial<CalRecord> = {}): CalRecord => ({ kind: 'five_hour', model: 'm', usd: 0, points: 0, segments: 0, at: 1000, ...over })
+  const read = (percentUsed: number, resetsAt?: string) => ({ kind: 'five_hour', percentUsed, resetsAt })
+  test('a span between two readings adds its dollars and its points; an unbroken run is one segment', () => {
     const r = rec()
-    let mark = extendCalibration(r, null, 10, 1.0)
-    mark = extendCalibration(r, mark, 12, 3.0)
-    mark = extendCalibration(r, mark, 12, 3.5)
-    expect(r).toEqual(rec({ usd: 2.5, points: 2 }))
-    expect(mark).toEqual({ percent: 12, ledger: 3.5 })
+    let mark: CalMark | null = extendCalibration(r, null, read(10), 1.0)
+    mark = extendCalibration(r, mark, read(12), 3.0)
+    mark = extendCalibration(r, mark, read(12), 3.5)
+    expect(r).toEqual(rec({ usd: 2.5, points: 2, segments: 1 }))
+    expect([mark.percent, mark.ledger, mark.open]).toEqual([12, 3.5, true])
   })
-  test('a reset, a ledger that started over, and a window at its wall are left out', () => {
+  test('a reset, a ledger that started over, and a window at its wall are left out, and each starts a new segment', () => {
     const r = rec()
-    let mark = extendCalibration(r, null, 97, 10)
-    mark = extendCalibration(r, mark, 2, 11) // reset
-    mark = extendCalibration(r, mark, 3, 0.2) // ledger started over
-    mark = extendCalibration(r, mark, 99, 50) // at the wall
-    mark = extendCalibration(r, mark, 100, 60)
+    let mark: CalMark | null = extendCalibration(r, null, read(90), 10)
+    mark = extendCalibration(r, mark, read(97), 17) // counted: segment 1
+    mark = extendCalibration(r, mark, read(2), 18) // reset
+    mark = extendCalibration(r, mark, read(4), 20) // counted: segment 2
+    mark = extendCalibration(r, mark, read(5), 0.2) // ledger started over
+    mark = extendCalibration(r, mark, read(99), 50) // at the wall
+    mark = extendCalibration(r, mark, read(100), 60)
+    expect(r).toEqual(rec({ usd: 9, points: 9, segments: 2 }))
+    expect(mark.open).toBe(false)
+  })
+  test('a reset is seen by the reset time even when the new reading is not lower', () => {
+    const r = rec()
+    const mark = extendCalibration(r, null, read(2, '2026-10-08T22:10:00.000Z'), 1)
+    extendCalibration(r, mark, read(3, '2026-10-09T03:10:00.000Z'), 9)
     expect(r).toEqual(rec())
-    expect(mark).toEqual({ percent: 100, ledger: 60 })
   })
-  test('the pooled rate is total dollars over total points, widened for rounding, so it errs low', () => {
-    const records = [rec({ usd: 4.85, points: 5 }), rec({ usd: 3.88, points: 4 }), rec({ usd: 0.5, points: 0 })]
+  test('the pooled rate is total dollars over total points, widened for rounding per segment, so it errs low', () => {
+    const records = [rec({ usd: 4.85, points: 5, segments: 1 }), rec({ usd: 3.88, points: 4, segments: 2 }), rec({ usd: 0.5, points: 0, segments: 1 })]
     const rate = poolRate(records, 'five_hour', 'm', 2000)!
     expect(rate.points).toBe(9)
     expect(rate.intervals).toBe(3)
-    near(rate.usdPerPoint, 9.23 / (9 + 2 * 0.41 * Math.sqrt(3)))
+    near(rate.usdPerPoint, 9.23 / (9 + 2 * 0.41 * Math.sqrt(4)))
     expect(rate.usdPerPoint).toBeLessThan(9.23 / 9)
   })
   test('too little movement, another model, another window or old records give no rate', () => {
     expect(poolRate([rec({ usd: 2, points: 2 })], 'five_hour', 'm', 2000)).toBeNull()
     expect(poolRate([rec({ usd: 9, points: 9 })], 'five_hour', 'other', 2000)).toBeNull()
     expect(poolRate([rec({ usd: 9, points: 9 })], 'seven_day', 'm', 2000)).toBeNull()
-    expect(poolRate([rec({ usd: 9, points: 9 })], 'five_hour', 'm', 1000 + CAL_MAX_AGE_MS)).toBeNull()
+    expect(poolRate([rec({ usd: 9, points: 9 })], 'five_hour', 'm', 1000 + MAX_AGE_DAYS * DAY_MS)).toBeNull()
     expect(poolRate([rec({ usd: 0, points: 9 })], 'five_hour', 'm', 2000)).toBeNull()
   })
   test('simulated whole-point readings: the pooled rate stays at or under the true rate', () => {
@@ -189,7 +237,7 @@ describe('calibration', () => {
       const startPct = rand() * 60
       const spend = 0.3 + rand() * 6
       const r = rec()
-      extendCalibration(r, extendCalibration(r, null, Math.floor(startPct), 0), Math.floor(startPct + spend / truth), spend)
+      extendCalibration(r, extendCalibration(r, null, read(Math.floor(startPct)), 0), read(Math.floor(startPct + spend / truth)), spend)
       records.push(r)
     }
     const rate = poolRate(records, 'five_hour', 'm', 2000)!
@@ -197,8 +245,8 @@ describe('calibration', () => {
     expect(rate.usdPerPoint).toBeGreaterThan(truth * 0.85)
   })
   test('other sessions on the account only make the rate smaller', () => {
-    const alone = poolRate([rec({ usd: 9.7, points: 10 })], 'five_hour', 'm', 2000)!
-    const shared = poolRate([rec({ usd: 9.7, points: 17 })], 'five_hour', 'm', 2000)!
+    const alone = poolRate([rec({ usd: 9.7, points: 10, segments: 1 })], 'five_hour', 'm', 2000)!
+    const shared = poolRate([rec({ usd: 9.7, points: 17, segments: 1 })], 'five_hour', 'm', 2000)!
     expect(shared.usdPerPoint).toBeLessThan(alone.usdPerPoint)
   })
 })

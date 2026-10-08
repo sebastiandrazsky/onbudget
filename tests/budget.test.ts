@@ -103,7 +103,7 @@ describe('/onbudget $X <task>', () => {
     const status = (await run($, '')).text
     expect(status.startsWith('$0.10 of $1.00 spent · 90% left · tier HIGH')).toBe(true)
     expect(status).toContain('task: task')
-    expect(status).toContain('requests: 1 sent, 0 refused · dearest so far $0.10')
+    expect(status).toContain('requests: 1 answered, 0 refused · dearest so far $0.10')
   })
   test('a new budget replaces the old one and says what the old one had spent', async ($, on) => {
     const w = world(on)
@@ -148,7 +148,7 @@ describe('the stop', () => {
     expect(refused.result.toolUses).toEqual([])
     expect(refused.result.answer).toContain('[onbudget] Stopped: $0.90 of $1.00 is used, and the next request could cost up to $0.30, so it was not sent.')
     expect(refused.chunks.map(c => c.kind)).toEqual(['text', 'stop'])
-    expect(lastStatus(w)).toContain('budget spent ($0.90 of $1.00)')
+    expect(lastStatus(w)).toBe('stopped at $0.90 of $1.00: the budget cannot cover another request · /onbudget off to continue')
     const sub = await step($, { agentId: 'agent-1' })
     expect(sub.result.answer).toContain('This subagent was stopped')
     expect(w.requests.length).toBe(3)
@@ -205,6 +205,72 @@ describe('the stop', () => {
     expect(out.text).toContain('could not run (this session reports no cost)')
     await w.clock.advance(5)
     expect(w.prompts.length).toBe(0)
+  })
+})
+
+describe('when things go wrong around the command', () => {
+  test('/onbudget off and the status still work when the ledger cannot be read', async ($, on) => {
+    const w = world(on)
+    await start($)
+    await run($, '$1 task')
+    await step($)
+    w.hasLedger = false
+    expect((await step($)).result.answer).toContain('Not sent: the budget check could not be completed')
+    expect((await run($, '')).text.startsWith('$0.10 of $1.00 spent')).toBe(true)
+    expect((await run($, 'off')).text).toContain('budget removed ($0.10 of $1.00 was spent)')
+    await step($)
+    expect(w.requests.length).toBe(2)
+  })
+  test('the command as prompt text that cannot be run drops the prompt: the task is not sent without its budget', async ($, on) => {
+    const w = world(on)
+    w.hasLedger = false
+    await start($)
+    const p = await prompt($, '/onbudget $1 Do the thing.', 'sdk')
+    expect(p.drop).toContain('the command could not be run (this session reports no cost), so nothing was sent')
+    expect(w.prompts.length).toBe(0)
+  })
+  test('the command as prompt text is honoured only from the person', async ($, on) => {
+    const w = world(on)
+    await start($)
+    await run($, '$1 task')
+    const p = await prompt($, '/onbudget off', 'peer')
+    expect(p.text).toBe('/onbudget off')
+    expect((await run($, '')).text.startsWith('$0.00 of $1.00 spent')).toBe(true)
+  })
+  test('a budget that cannot be saved is not set, and the answer says so', async ($, on) => {
+    const w = world(on)
+    w.storeFails = key => key === 'budget:session-1'
+    await start($)
+    const out = await run($, '$1 task')
+    expect(out.text).toContain('could not run')
+    expect(out.text).toContain('No budget was changed')
+    await w.clock.advance(5)
+    expect(w.prompts.length).toBe(0)
+    await step($, { effort: 'xhigh' })
+    expect(w.requests[0].effort).toBe('xhigh')
+  })
+  test('if the task cannot be submitted after the command, the person is told', async ($, on) => {
+    const w = world(on)
+    w.enter = () => ({ drop: 'blocked by policy' })
+    await start($)
+    await run($, '$1 task')
+    await w.clock.advance(5)
+    expect(w.logs.join(' ')).toContain('the budget is set, but the task could not be submitted (blocked by policy)')
+  })
+})
+
+describe('spend that is not a request of the conversation', () => {
+  test('a compaction between two requests is counted as spend, not as the cost of the request after it', async ($, on) => {
+    const w = world(on, { env: LOG })
+    await start($)
+    await run($, '$10 task')
+    await step($)
+    w.cost += 2 // the compaction's own model request
+    await step($)
+    const steps = rows(w, 'step')
+    near(steps[1].stepCost, 0.1)
+    near(steps[1].maxStep, 0.1)
+    near(steps[1].spent, 2.2)
   })
 })
 

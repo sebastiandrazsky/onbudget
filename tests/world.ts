@@ -3,7 +3,7 @@
 import { mock } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-export type Reply = { cost?: number; text?: string; hold?: Promise<void>; tools?: string[] }
+export type Reply = { cost?: number; text?: string; hold?: Promise<void>; tools?: string[]; none?: boolean } // none: no response arrived
 
 export function world(on: On, init: { env?: Record<string, string>; store?: Record<string, unknown>; sid?: string } = {}) {
   const w = {
@@ -16,6 +16,8 @@ export function world(on: On, init: { env?: Record<string, string>; store?: Reco
     requests: [] as any[], // model requests that were really sent, as the engine received them
     reply: (_e: any): Reply => ({ cost: 0.1 }),
     tool: (_e: any): any => ({ result: 'tool output', text: 'tool output' }), // what a tool call answers
+    enter: (e: any): any => ({ text: e.text, context: e.context }), // what the engine answers a prompt with
+    storeFails: (_key: string): boolean => false, // which writes of the plugin's store are refused
     status: [] as (string | undefined)[],
     logs: [] as string[],
     prompts: [] as any[], // prompts that entered the session
@@ -30,7 +32,11 @@ export function world(on: On, init: { env?: Record<string, string>; store?: Reco
   mock.env(on, init.env ?? {})
   const value = (v?: unknown) => ({ value: v }) as any
   on('store.get', (_$, e) => value(w.store.has(e.key) ? JSON.parse(JSON.stringify(w.store.get(e.key))) : undefined))
-  on('store.set', (_$, e) => { w.store.set(e.key, JSON.parse(JSON.stringify(e.value))); return value() })
+  on('store.set', (_$, e) => {
+    if (w.storeFails(e.key)) throw new Error('the store is full')
+    w.store.set(e.key, JSON.parse(JSON.stringify(e.value)))
+    return value()
+  })
   on('store.delete', (_$, e) => { w.store.delete(e.key); return value() })
   on('store.keys', () => value([...w.store.keys()]))
   on('session.usage', () => value(w.usage()))
@@ -41,7 +47,11 @@ export function world(on: On, init: { env?: Record<string, string>; store?: Reco
   on('ui.status', (_$, e: any) => { w.status.push(e.text); return value() })
   on('ui.log', (_$, e: any) => { w.logs.push(e.text); return value() })
   on('fs.write', (_$, e: any) => { w.files.set(e.path, e.text); return value() })
-  on('prompt.submit', (_$, e) => { w.prompts.push(e); return { text: e.text, context: e.context } as any })
+  on('prompt.submit', (_$, e) => {
+    const answer = w.enter(e)
+    if (answer.drop === undefined) w.prompts.push(e)
+    return answer
+  })
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('session.measure', (_$, e) => ({ changed: e.changed }))
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
@@ -51,6 +61,7 @@ export function world(on: On, init: { env?: Record<string, string>; store?: Reco
     w.requests.push(e)
     const reply = w.reply(e)
     if (reply.hold) await reply.hold
+    if (reply.none) return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: null, usage: null } as any
     w.cost += reply.cost ?? 0
     const toolUses = (reply.tools ?? []).map(name => ({ name, input: {} }))
     yield { kind: 'text', index: 0, text: reply.text ?? 'ok' } as any
