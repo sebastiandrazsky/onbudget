@@ -1,0 +1,8 @@
+{"ts": 1791499811.704881, "task": "falcon", "argv": ["python", "--version"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-A-2-a0/ws/falcon"}
+{"ts": 1791499821.9874828, "task": "pydantic-settings", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-A-2-a0/ws/pydantic-settings"}
+{"ts": 1791499832.712915, "task": "falcon", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-A-2-a0/ws/falcon"}
+{"ts": 1791499868.532206, "task": "pluggy", "argv": ["python", "-m", "pytest", "testing", "--ignore=testing/benchmark.py", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-A-2-a0/ws/pluggy"}
+{"ts": 1791499876.07208, "task": "boltons", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-A-2-a0/ws/boltons"}
+{"ts": 1791499876.1485739, "task": "boltons", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-A-2-a0/ws/boltons"}
+{"ts": 1791499876.28723, "task": "boltons", "argv": ["python", "-m", "pytest", "tests", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-A-2-a0/ws/boltons"}
+{"ts": 1791499879.2750201, "task": "boltons", "argv": ["python", "-m", "pytest", "--doctest-modules", "boltons/timeutils.py", "boltons/iterutils.py", "boltons/jsonutils.py", "boltons/strutils.py", "boltons/tableutils.py", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-A-2-a0/ws/boltons"}

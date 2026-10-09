@@ -1,0 +1,30 @@
+{"ts": 1791506103.5349739, "task": "pluggy", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/extra-pct-B-1-a0/ws/pluggy"}
+{"ts": 1791506103.648462, "task": "pluggy", "argv": ["python", "-m", "pytest", "testing", "--ignore=testing/benchmark.py", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/extra-pct-B-1-a0/ws/pluggy"}
+{"ts": 1791506113.2418911, "task": "pluggy", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/extra-pct-B-1-a0/ws/pluggy"}
+{"ts": 1791506113.314739, "task": "pluggy", "argv": ["python", "-m", "pytest", "testing", "--ignore=testing/benchmark.py", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/extra-pct-B-1-a0/ws/pluggy"}
+{"ts": 1791506135.788511, "task": "markdown-it-py", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/extra-pct-B-1-a0/ws/markdown-it-py"}
+{"ts": 1791506135.88194, "task": "markdown-it-py", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/extra-pct-B-1-a0/ws/markdown-it-py"}
+{"ts": 1791506136.046444, "task": "markdown-it-py", "argv": ["python", "-m", "pytest", "tests", "--ignore=tests/test_packaging", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/extra-pct-B-1-a0/ws/markdown-it-py"}
+{"ts": 1791506147.3303502, "task": "markdown-it-py", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/extra-pct-B-1-a0/ws/markdown-it-py"}
+{"ts": 1791506147.496212, "task": "markdown-it-py", "argv": ["python", "-m", "pytest", "tests", "--ignore=tests/test_packaging", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/extra-pct-B-1-a0/ws/markdown-it-py"}
+{"ts": 1791506207.0515509, "task": "boltons", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/extra-pct-B-1-a0/ws/boltons"}
+{"ts": 1791506207.129041, "task": "boltons", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/extra-pct-B-1-a0/ws/boltons"}
+{"ts": 1791506207.269011, "task": "boltons", "argv": ["python", "-m", "pytest", "tests", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/extra-pct-B-1-a0/ws/boltons"}
+{"ts": 1791506225.8521721, "task": "boltons", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/extra-pct-B-1-a0/ws/boltons"}
+{"ts": 1791506225.928784, "task": "boltons", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/extra-pct-B-1-a0/ws/boltons"}
+{"ts": 1791506226.052896, "task": "boltons", "argv": ["python", "-m", "pytest", "tests", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/extra-pct-B-1-a0/ws/boltons"}
+{"ts": 1791506287.696509, "task": "pydantic-settings", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/extra-pct-B-1-a0/ws/pydantic-settings"}
+{"ts": 1791506305.6125922, "task": "pydantic-settings", "argv": ["python", "_scratch_check.py"], "cwd": "/Users/user/Documents/.onbudget-eval-work/extra-pct-B-1-a0/ws/pydantic-settings"}
+{"ts": 1791506305.915047, "task": "pydantic-settings", "argv": ["python", "-m", "pytest", "tests", "--ignore=tests/test_docs.py", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/extra-pct-B-1-a0/ws/pydantic-settings"}
+{"ts": 1791506318.891337, "task": "pydantic-settings", "argv": ["python", "-m", "pytest", "tests", "--ignore=tests/test_docs.py", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/extra-pct-B-1-a0/ws/pydantic-settings"}
+{"ts": 1791506328.390263, "task": "pydantic-settings", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/extra-pct-B-1-a0/ws/pydantic-settings"}
+{"ts": 1791506328.465515, "task": "pydantic-settings", "argv": ["python", "-m", "pytest", "tests", "--ignore=tests/test_docs.py", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/extra-pct-B-1-a0/ws/pydantic-settings"}
+{"ts": 1791506420.9150798, "task": "falcon", "argv": ["python", "_edit.py"], "cwd": "/Users/user/Documents/.onbudget-eval-work/extra-pct-B-1-a0/ws/falcon"}
+{"ts": 1791506428.11358, "task": "falcon", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/extra-pct-B-1-a0/ws/falcon"}
+{"ts": 1791506428.188989, "task": "falcon", "argv": ["python", "_edit.py"], "cwd": "/Users/user/Documents/.onbudget-eval-work/extra-pct-B-1-a0/ws/falcon"}
+{"ts": 1791506428.2665741, "task": "falcon", "argv": ["python", "_check.py"], "cwd": "/Users/user/Documents/.onbudget-eval-work/extra-pct-B-1-a0/ws/falcon"}
+{"ts": 1791506444.585972, "task": "falcon", "argv": ["python", "-m", "pytest", "tests", "--ignore=tests/asgi/test_asgi_servers.py", "--ignore=tests/test_wsgi_servers.py", "-q", "-x"], "cwd": "/Users/user/Documents/.onbudget-eval-work/extra-pct-B-1-a0/ws/falcon"}
+{"ts": 1791506539.63271, "task": "werkzeug", "argv": ["python", "_edit.py"], "cwd": "/Users/user/Documents/.onbudget-eval-work/extra-pct-B-1-a0/ws/werkzeug"}
+{"ts": 1791506550.6677299, "task": "werkzeug", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/extra-pct-B-1-a0/ws/werkzeug"}
+{"ts": 1791506563.00242, "task": "werkzeug", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/extra-pct-B-1-a0/ws/werkzeug"}
+{"ts": 1791506563.077124, "task": "werkzeug", "argv": ["python", "-m", "pytest", "tests", "-m", "not dev_server", "--ignore=tests/middleware/test_http_proxy.py", "--ignore=tests/test_serving.py", "--ignore=tests/test_reloader.py", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/extra-pct-B-1-a0/ws/werkzeug"}

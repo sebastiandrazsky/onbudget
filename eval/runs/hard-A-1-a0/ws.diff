@@ -1,0 +1,936 @@
+--- a/falcon/falcon/_typing.py
++++ b/falcon/falcon/_typing.py
+@@ -110,6 +110,7 @@
+ 
+ # Error serializers
+ ErrorSerializer = Callable[[_ReqT, _RespT, 'HTTPError'], None]
++ErrorReporter = Callable[[_ReqT, Exception, dict[str, Any], bool], None]
+ 
+ # Sinks
+ SinkPrefix = Union[str, Pattern[str]]
+--- a/falcon/falcon/app.py
++++ b/falcon/falcon/app.py
+@@ -44,6 +44,7 @@
+ from falcon._typing import AsgiResponderCallable
+ from falcon._typing import AsgiResponderWsCallable
+ from falcon._typing import ErrorHandler
++from falcon._typing import ErrorReporter
+ from falcon._typing import ErrorSerializer
+ from falcon._typing import FindMethod
+ from falcon._typing import ProcessResponseMethod
+@@ -241,6 +242,7 @@
+     __slots__ = (
+         '_cors_enable',
+         '_error_handlers',
++        '_error_reporter',
+         '_independent_middleware',
+         '_middleware',
+         '_request_type',
+@@ -259,6 +261,7 @@
+ 
+     _cors_enable: bool
+     _error_handlers: dict[type[Exception], ErrorHandler[_ReqT, _RespT]]
++    _error_reporter: ErrorReporter[_ReqT] | None
+     _independent_middleware: bool
+     _middleware: helpers.PreparedMiddlewareResult
+     _request_type: type[_ReqT]
+@@ -387,6 +390,7 @@
+         self._response_type = response_type or Response  # type: ignore[assignment]
+ 
+         self._error_handlers = {}
++        self._error_reporter = None
+         self._serialize_error = helpers.default_serialize_error
+ 
+         self.req_options = RequestOptions()
+@@ -506,49 +510,58 @@
+ 
+             req_succeeded = False
+ 
+-        resp_status: str = code_to_http_status(resp.status)
+-        default_media_type: str | None = self.resp_options.default_media_type
+-
+-        if req.method == 'HEAD' or resp_status in _BODILESS_STATUS_CODES:
+-            body = []
+-
+-            # PERF(vytas): move check for the less common and much faster path
+-            # of resp_status being in {204, 304} here; NB: this builds on the
+-            # assumption _TYPELESS_STATUS_CODES <= _BODILESS_STATUS_CODES.
+-
+-            # NOTE(kgriffs): Based on wsgiref.validate's interpretation of
+-            # RFC 2616, as commented in that module's source code. The
+-            # presence of the Content-Length header is not similarly
+-            # enforced.
+-            if resp_status in _TYPELESS_STATUS_CODES:
+-                default_media_type = None
+-            elif (
+-                length is not None
+-                and req.method == 'HEAD'
+-                and resp_status not in _BODILESS_STATUS_CODES
+-                and 'content-length' not in resp._headers
+-            ):
+-                # NOTE(kgriffs): We really should be returning a Content-Length
+-                #   in this case according to my reading of the RFCs. By
+-                #   optionally using len(data) we let a resource simulate HEAD
+-                #   by turning around and calling it's own on_get().
+-                resp._headers['content-length'] = str(length)
+-
+-        else:
+-            # PERF(kgriffs): Böse mußt sein. Operate directly on resp._headers
+-            #   to reduce overhead since this is a hot/critical code path.
+-            # NOTE(kgriffs): We always set content-length to match the
+-            #   body bytes length, even if content-length is already set. The
+-            #   reason being that web servers and LBs behave unpredictably
+-            #   when the header doesn't match the body (sometimes choosing to
+-            #   drop the HTTP connection prematurely, for example).
+-            if length is not None:
+-                resp._headers['content-length'] = str(length)
+-
+-        headers: list[tuple[str, str]] = resp._wsgi_headers(default_media_type)
+-
+-        # Return the response per the WSGI spec.
+-        start_response(resp_status, headers)
++        try:
++            resp_status: str = code_to_http_status(resp.status)
++            default_media_type: str | None = self.resp_options.default_media_type
++
++            if req.method == 'HEAD' or resp_status in _BODILESS_STATUS_CODES:
++                body = []
++
++                # PERF(vytas): move check for the less common and much faster path
++                # of resp_status being in {204, 304} here; NB: this builds on the
++                # assumption _TYPELESS_STATUS_CODES <= _BODILESS_STATUS_CODES.
++
++                # NOTE(kgriffs): Based on wsgiref.validate's interpretation of
++                # RFC 2616, as commented in that module's source code. The
++                # presence of the Content-Length header is not similarly
++                # enforced.
++                if resp_status in _TYPELESS_STATUS_CODES:
++                    default_media_type = None
++                elif (
++                    length is not None
++                    and req.method == 'HEAD'
++                    and resp_status not in _BODILESS_STATUS_CODES
++                    and 'content-length' not in resp._headers
++                ):
++                    # NOTE(kgriffs): We really should be returning a Content-Length
++                    #   in this case according to my reading of the RFCs. By
++                    #   optionally using len(data) we let a resource simulate HEAD
++                    #   by turning around and calling it's own on_get().
++                    resp._headers['content-length'] = str(length)
++
++            else:
++                # PERF(kgriffs): Böse mußt sein. Operate directly on resp._headers
++                #   to reduce overhead since this is a hot/critical code path.
++                # NOTE(kgriffs): We always set content-length to match the
++                #   body bytes length, even if content-length is already set. The
++                #   reason being that web servers and LBs behave unpredictably
++                #   when the header doesn't match the body (sometimes choosing to
++                #   drop the HTTP connection prematurely, for example).
++                if length is not None:
++                    resp._headers['content-length'] = str(length)
++
++            headers: list[tuple[str, str]] = resp._wsgi_headers(default_media_type)
++
++            # Return the response per the WSGI spec.
++            start_response(resp_status, headers)
++        except Exception as ex:
++            # NOTE: The response could not be started; there is nothing left
++            #   to render at this point, so we just report the exception (if
++            #   requested), and let it propagate to the app server.
++            if self._error_reporter is not None:
++                self._error_reporter(req, ex, params, False)
++            raise
++
+         return body
+ 
+     # NOTE(caselit): the return type depends on the router, hardcoded to
+@@ -1083,6 +1096,79 @@
+ 
+         self._serialize_error = serializer
+ 
++    def set_error_reporter(self, reporter: ErrorReporter[_ReqT] | None) -> None:
++        """Set a callable to be notified of exceptions raised by the app.
++
++        The reporter is called for every exception that is passed to the
++        app's error handling, regardless of whether it was raised while
++        routing the request, in a middleware component, hook or responder,
++        or while rendering the response body. This includes instances of
++        :class:`~.HTTPError` and :class:`~.HTTPStatus` too (for example, a
++        request to an unknown route is reported as
++        :class:`~.HTTPRouteNotFound`).
++
++        This makes the reporter a convenient place to log exceptions, or to
++        send them to an error tracker, without having to replace or wrap the
++        error handlers themselves::
++
++            def report_error(req, ex, params, handled):
++                if not isinstance(ex, (falcon.HTTPError, falcon.HTTPStatus)):
++                    logging.error(
++                        'Error serving %s %s', req.method, req.path, exc_info=ex
++                    )
++
++            app.set_error_reporter(report_error)
++
++        The reporter is called before the matching error handler (see also:
++        :meth:`~.add_error_handler`) is invoked, and it does not alter the
++        way the exception is handled. In addition to the above, the
++        following exceptions are reported:
++
++        * If an error handler raises an instance of :class:`~.HTTPError` or
++          :class:`~.HTTPStatus`, that exception is reported as handled too,
++          and the response is rendered from it as usual. (However, if the
++          handler reraises the very same exception object that it was passed,
++          the exception is not reported a second time.)
++        * If an error handler, or the error serializer (see also:
++          :meth:`~.set_error_serializer`), raises any other exception, it is
++          reported as unhandled, and propagates to the application server.
++        * If the response cannot be started (for instance, in the case
++          `resp.status` was set to an invalid value), the resulting exception
++          is reported as unhandled, and propagates to the application server.
++
++        Exceptions raised after the response has been started, such as while
++        iterating over a response stream, cannot be observed by the app, and
++        are thus not reported.
++
++        Note:
++            Only one reporter can be set at a time; calling this method again
++            replaces the previously set one. Pass ``None`` to remove the
++            reporter.
++
++        Note:
++            The reporter is always a regular (synchronous) callable, even
++            when used with an ASGI app; it must not be a coroutine function.
++            In an ASGI app, it is called directly from the event loop, so it
++            should not block.
++
++        Note:
++            An exception raised by the reporter itself is not handled by the
++            framework, and propagates to the application server.
++
++        Args:
++            reporter (callable): A function taking the form
++                ``func(req, ex, params, handled)``, where `req` is the
++                request object, `ex` is the exception being reported,
++                `params` is the ``dict`` of keyword arguments that were (or
++                would have been) passed to the responder, and `handled` is
++                ``True`` if an error handler matches the type of the
++                exception, or ``False`` if the exception is going to be
++                propagated to the application server.
++
++        .. versionadded:: 4.3
++        """
++        self._error_reporter = reporter
++
+     # ------------------------------------------------------------------------
+     # Helpers that require self
+     # ------------------------------------------------------------------------
+@@ -1263,6 +1349,15 @@
+         """
+         err_handler = self._find_error_handler(ex)
+ 
++        # PERF: Exceptions are (hopefully) exceptional, but HTTPError and
++        #   HTTPStatus are still commonly raised, so we keep the path taken
++        #   when no reporter is set identical to what it would be otherwise.
++        reporter = self._error_reporter
++        if reporter is not None:
++            return self._handle_exception_reported(
++                req, resp, ex, params, err_handler, reporter
++            )
++
+         # NOTE(caselit): Reset body, data and media before calling the handler
+         resp.text = resp.data = resp.media = None
+         if err_handler is not None:
+@@ -1280,6 +1375,60 @@
+         # would have matched one of the corresponding default
+         # handlers.
+         return False
++
++    def _handle_exception_reported(
++        self,
++        req: _ReqT,
++        resp: _RespT,
++        ex: Exception,
++        params: dict[str, Any],
++        err_handler: ErrorHandler[_ReqT, _RespT] | None,
++        reporter: ErrorReporter[_ReqT],
++    ) -> bool:
++        """Handle an exception in the same way as _handle_exception().
++
++        In addition, report the exception, as well as any other exception
++        raised in the process of handling it, to the error reporter.
++        """
++        reporter(req, ex, params, err_handler is not None)
++
++        # NOTE(caselit): Reset body, data and media before calling the handler
++        resp.text = resp.data = resp.media = None
++        if err_handler is None:
++            return False
++
++        # NOTE: The names of the caught exceptions below must differ from ex,
++        #   since Python unbinds the name upon leaving the except clause.
++        try:
++            err_handler(req, resp, ex, params)
++        except HTTPStatus as status:
++            # NOTE: The handler may reraise the very same exception that it
++            #   was asked to handle; it has already been reported.
++            if status is not ex:
++                reporter(req, status, params, True)
++
++            try:
++                self._compose_status_response(req, resp, status)
++            except Exception as compose_ex:
++                if compose_ex is not ex and compose_ex is not status:
++                    reporter(req, compose_ex, params, False)
++                raise
++        except HTTPError as error:
++            if error is not ex:
++                reporter(req, error, params, True)
++
++            try:
++                self._compose_error_response(req, resp, error)
++            except Exception as compose_ex:
++                if compose_ex is not ex and compose_ex is not error:
++                    reporter(req, compose_ex, params, False)
++                raise
++        except Exception as handler_ex:
++            if handler_ex is not ex:
++                reporter(req, handler_ex, params, False)
++            raise
++
++        return True
+ 
+     # PERF(kgriffs): Moved from api_helpers since it is slightly faster
+     # to call using self, and this function is called for most
+--- a/werkzeug/src/werkzeug/datastructures/__init__.py
++++ b/werkzeug/src/werkzeug/datastructures/__init__.py
+@@ -10,7 +10,8 @@
+ from .cache_control import RequestCacheControl as RequestCacheControl
+ from .cache_control import ResponseCacheControl as ResponseCacheControl
+ from .csp import ContentSecurityPolicy as ContentSecurityPolicy
+-from .etag import ETags as ETags
++from .etag import ETag as ETag
++from .etag import ETagSet as ETagSet
+ from .file_storage import FileMultiDict as FileMultiDict
+ from .file_storage import FileStorage as FileStorage
+ from .headers import EnvironHeaders as EnvironHeaders
+@@ -44,6 +45,15 @@
+             )
+             return _CharsetAccept
+ 
++        if name == "ETags":
++            warnings.warn(
++                "The 'ETags' class was renamed to 'ETagSet'. The old name is"
++                " deprecated and will be removed in Werkzeug 3.3.",
++                DeprecationWarning,
++                stacklevel=2,
++            )
++            return ETagSet
++
+         from . import mixins
+         from . import structures
+ 
+--- a/werkzeug/src/werkzeug/datastructures/etag.py
++++ b/werkzeug/src/werkzeug/datastructures/etag.py
+@@ -20,7 +20,121 @@
+ )
+ 
+ 
+-class ETags(cabc.Collection[str]):
++class ETag:
++    """A parsed ``ETag`` header, a single ETag value that is either strong or
++    weak.
++
++    :attr:`.Response.etag` returns an instance, or ``None`` if the header is
++    not set or is invalid. Set it to an instance to set the header. Modifying
++    the instance will update the header.
++
++    :param value: The unquoted value.
++    :param weak: Whether the value is marked weak.
++
++    .. versionadded:: 3.2
++    """
++
++    def __init__(self, value: str, weak: bool = False) -> None:
++        self._value = value
++        self._weak = weak
++        self._on_update: cabc.Callable[[ETag], None] | None = None
++
++    @property
++    def value(self) -> str:
++        """The unquoted value."""
++        return self._value
++
++    @value.setter
++    def value(self, value: str) -> None:
++        self._value = value
++
++        if self._on_update is not None:
++            self._on_update(self)
++
++    @property
++    def weak(self) -> bool:
++        """Whether the value is marked weak."""
++        return self._weak
++
++    @weak.setter
++    def weak(self, value: bool) -> None:
++        self._weak = value
++
++        if self._on_update is not None:
++            self._on_update(self)
++
++    @classmethod
++    def from_header(cls, value: str | None) -> te.Self | None:
++        """Parse an ``ETag`` header value and create an instance of this class.
++        A valid value must be quoted, and may have a weak ``W/`` prefix. Returns
++        ``None`` if the value is empty or invalid.
++
++        .. code-block:: pycon
++
++            >>> ETag.from_header('"strong"')
++            <ETag 'strong' strong>
++            >>> ETag.from_header('W/"weak"')
++            <ETag 'weak' weak>
++            >>> ETag.from_header('no_quotes') is None
++            True
++
++        Use :meth:`.ETagSet.from_header` to parse a list of ETag values.
++        """
++        if not value:
++            return None
++
++        weak = False
++        start = 0
++
++        if value.startswith(("W/", "w/")):
++            weak = True
++            start = 2
++
++        if (
++            len(value) < start + 2
++            or value[start] != '"'
++            or value[-1] != '"'
++            or '"' in value[start + 1 : -1]
++        ):
++            # invalid, value must be quoted
++            return None
++
++        return cls(value[start + 1 : -1], weak)
++
++    def to_header(self) -> str:
++        """Convert to an ``ETag`` header value. Returns an empty string if the
++        value is empty or is invalid because it contains a double quote.
++        """
++        if not self._value or '"' in self._value:
++            return ""
++
++        if self._weak:
++            return f'W/"{self._value}"'
++
++        return f'"{self._value}"'
++
++    def __eq__(self, other: object) -> bool:
++        if not isinstance(other, ETag):
++            return NotImplemented
++
++        return self._value == other._value and bool(self._weak) == bool(other._weak)
++
++    __hash__ = None  # type: ignore[assignment]
++
++    def __bool__(self) -> bool:
++        return bool(self._value)
++
++    def __str__(self) -> str:
++        return self.to_header()
++
++    def __repr__(self) -> str:
++        return (
++            f"<{type(self).__name__} {self._value!r}"
++            f" {'weak' if self._weak else 'strong'}>"
++        )
++
++
++class ETagSet(cabc.Collection[str]):
+     """A parsed ``If-Match`` or ``If-None-Match`` header.
+ 
+     :attr:`.Request.if_match` and :attr:`.Request.if_none_match` return an
+@@ -29,6 +143,10 @@
+     :param strong_etags: Unquoted values that were not marked weak.
+     :param weak_etags: Unquoted values that were marked weak.
+     :param star_tag: Whether ``*`` is present in the header value.
++
++    .. versionchanged:: 3.2
++        Renamed from ``ETags`` to ``ETagSet``. The old name is deprecated and
++        will be removed in Werkzeug 3.3.
+     """
+ 
+     def __init__(
+@@ -102,17 +220,13 @@
+ 
+         :param etag: The raw, quoted value to check.
+         """
+-        from ..http import unquote_etag
+-
+-        value, weak = unquote_etag(etag)
+-
+-        if value is None or weak is None:
++        if (parsed := ETag.from_header(etag)) is None:
+             return False
+ 
+-        if weak:
+-            return self.contains_weak(value)
+-
+-        return self.contains(value)
++        if parsed.weak:
++            return self.contains_weak(parsed.value)
++
++        return self.contains(parsed.value)
+ 
+     @classmethod
+     def from_header(cls, value: str | None) -> te.Self:
+@@ -205,3 +319,20 @@
+ 
+     def __repr__(self) -> str:
+         return f"<{type(self).__name__} {str(self)!r}>"
++
++
++if not t.TYPE_CHECKING:
++
++    def __getattr__(name: str) -> t.Any:
++        if name == "ETags":
++            import warnings
++
++            warnings.warn(
++                "The 'ETags' class was renamed to 'ETagSet'. The old name is"
++                " deprecated and will be removed in Werkzeug 3.3.",
++                DeprecationWarning,
++                stacklevel=2,
++            )
++            return ETagSet
++
++        raise AttributeError(name)
+--- a/werkzeug/src/werkzeug/datastructures/range.py
++++ b/werkzeug/src/werkzeug/datastructures/range.py
+@@ -8,8 +8,7 @@
+ from ..http import http_date
+ from ..http import is_byte_range_valid
+ from ..http import parse_date
+-from ..http import quote_etag
+-from ..http import unquote_etag
++from .etag import ETag
+ 
+ if t.TYPE_CHECKING:
+     import typing_extensions as te
+@@ -49,19 +48,17 @@
+         if (date := parse_date(value)) is not None:
+             return cls(date=date)
+ 
+-        value, weak = unquote_etag(value)
+-
+-        if weak:
+-            return cls()
+-
+-        return cls(etag=value)
++        if (etag := ETag.from_header(value)) is None or etag.weak:
++            return cls()
++
++        return cls(etag=etag.value)
+ 
+     def to_header(self) -> str:
+         """Convert to an ``If-Range`` header value."""
+         if self.date is not None:
+             return http_date(self.date)
+         if self.etag is not None:
+-            return quote_etag(self.etag)
++            return ETag(self.etag).to_header()
+         return ""
+ 
+     def __bool__(self) -> bool:
+--- a/werkzeug/src/werkzeug/http.py
++++ b/werkzeug/src/werkzeug/http.py
+@@ -1031,7 +1031,20 @@
+ 
+     :param etag: The ETag to quote.
+     :param weak: Add a weak marker to the quoted value.
+-    """
++
++    .. deprecated:: 3.2
++        Will be removed in Werkzeug 3.3. Use the ``ETag.to_header`` method
++        instead.
++    """
++    import warnings
++
++    warnings.warn(
++        "The 'quote_etag' function is deprecated and will be removed in"
++        " Werkzeug 3.3. Use the 'ETag.to_header' method instead.",
++        DeprecationWarning,
++        stacklevel=2,
++    )
++
+     if '"' in etag:
+         raise ValueError("Unquoted ETag value cannot contain double-quote character.")
+ 
+@@ -1060,53 +1073,56 @@
+         >>> unquote_etag('no_quotes')
+         (None, None)
+ 
+-    Use :meth:`.ETags.from_header` to parse a list of ETag values.
++    Use :meth:`.ETagSet.from_header` to parse a list of ETag values.
+ 
+     :param etag: A valid ETag to unquote.
+     :return: A tuple ``(value, weak)``, or ``(None, None)`` if the
+         value is empty or invalid.
+ 
++    .. deprecated:: 3.2
++        Will be removed in Werkzeug 3.3. Use the ``ETag.from_header`` method
++        instead.
++
+     .. versionchanged:: 3.2
+         Does not accept invalid unquoted values.
+     """
+-    if not etag:
+-        return None, None
+-
+-    weak = False
+-    start = 0
+-
+-    if etag.startswith(("W/", "w/")):
+-        weak = True
+-        start = 2
+-
+-    if not (etag.startswith('"', start) and etag.endswith('"', start)):
+-        # invalid, value must be quoted
+-        return None, None
+-
+-    return etag[start + 1 : -1], weak
+-
+-
+-def _parse_etags(value: str | None) -> ds.ETags:
+-    """Parse an ETag header.
+-
+-    :param value: the tag header to parse
+-    :return: an :class:`~werkzeug.datastructures.ETags` object.
+-
+-    .. deprecated:: 3.2
+-        Will be removed in Werkzeug 3.3. Use the 'ETags.from_header' method instead.
+-
+-    .. versionchanged:: 3.2
+-        Does not accept invalid unquoted values.
+-    """
+     import warnings
+ 
+     warnings.warn(
+-        "The 'parse_etags' function is deprecated and will be removed in"
+-        " Werkzeug 3.3. Use the 'ETags.from_header' method instead.",
++        "The 'unquote_etag' function is deprecated and will be removed in"
++        " Werkzeug 3.3. Use the 'ETag.from_header' method instead.",
+         DeprecationWarning,
+         stacklevel=2,
+     )
+-    return ds.ETags.from_header(value)
++
++    if (obj := ds.ETag.from_header(etag)) is None:
++        return None, None
++
++    return obj.value, obj.weak
++
++
++def _parse_etags(value: str | None) -> ds.ETagSet:
++    """Parse an ETag header.
++
++    :param value: the tag header to parse
++    :return: an :class:`~werkzeug.datastructures.ETagSet` object.
++
++    .. deprecated:: 3.2
++        Will be removed in Werkzeug 3.3. Use the 'ETagSet.from_header' method
++        instead.
++
++    .. versionchanged:: 3.2
++        Does not accept invalid unquoted values.
++    """
++    import warnings
++
++    warnings.warn(
++        "The 'parse_etags' function is deprecated and will be removed in"
++        " Werkzeug 3.3. Use the 'ETagSet.from_header' method instead.",
++        DeprecationWarning,
++        stacklevel=2,
++    )
++    return ds.ETagSet.from_header(value)
+ 
+ 
+ def generate_etag(data: bytes) -> str:
+@@ -1245,7 +1261,7 @@
+ 
+ def is_resource_modified(
+     environ: WSGIEnvironment,
+-    etag: str | None = None,
++    etag: str | ds.ETag | None = None,
+     data: bytes | None = None,
+     last_modified: datetime | str | None = None,
+     ignore_if_range: bool = True,
+@@ -1253,13 +1269,17 @@
+     """Convenience method for conditional requests.
+ 
+     :param environ: the WSGI environment of the request to be checked.
+-    :param etag: the ETag for the response for comparison.
++    :param etag: the ETag for the response for comparison. Either the quoted
++        header value or an :class:`.ETag`.
+     :param data: or alternatively the data of the response to automatically
+                  generate an ETag value using :func:`generate_etag`.
+     :param last_modified: an optional date of the last modification.
+     :param ignore_if_range: If `False`, `If-Range` header will be taken into
+                             account.
+     :return: `True` if the resource was modified, otherwise `False`.
++
++    .. versionchanged:: 3.2
++        ``etag`` can be an :class:`.ETag`.
+ 
+     .. versionchanged:: 1.0
+         The check is run for methods other than ``GET`` and ``HEAD``.
+@@ -1593,7 +1613,7 @@
+             "parse_cache_control_header": "CacheControl.from_header",
+             "parse_content_range_header": "ContentRange.from_header",
+             "parse_csp_header": "ContentSecurityPolicy.from_header",
+-            "parse_etags": "ETags.from_header",
++            "parse_etags": "ETagSet.from_header",
+             "parse_if_range_header": "IfRange.from_header",
+             "parse_range_header": "Range.from_header",
+             "parse_set_header": "HeaderSet.from_header",
+--- a/werkzeug/src/werkzeug/sansio/http.py
++++ b/werkzeug/src/werkzeug/sansio/http.py
+@@ -7,7 +7,6 @@
+ from .._internal import _dt_as_utc
+ from ..http import generate_etag
+ from ..http import parse_date
+-from ..http import unquote_etag
+ 
+ 
+ def is_resource_modified(
+@@ -16,7 +15,7 @@
+     http_if_modified_since: str | None = None,
+     http_if_none_match: str | None = None,
+     http_if_match: str | None = None,
+-    etag: str | None = None,
++    etag: str | ds.ETag | None = None,
+     data: bytes | None = None,
+     last_modified: datetime | str | None = None,
+     ignore_if_range: bool = True,
+@@ -27,7 +26,8 @@
+     :param http_if_modified_since: If-Modified-Since HTTP header
+     :param http_if_none_match: If-None-Match HTTP header
+     :param http_if_match: If-Match HTTP header
+-    :param etag: the ETag for the response for comparison.
++    :param etag: the ETag for the response for comparison. Either the quoted
++        header value or an :class:`.ETag`.
+     :param data: or alternatively the data of the response to automatically
+                  generate an ETag using :func:`generate_etag`.
+     :param last_modified: an optional date of the last modification.
+@@ -35,10 +35,13 @@
+                             account.
+     :return: `True` if the resource was modified, otherwise `False`.
+ 
++    .. versionchanged:: 3.2
++        ``etag`` can be an :class:`.ETag`.
++
+     .. versionadded:: 2.2
+     """
+     if etag is None and data is not None:
+-        etag = f'"{generate_etag(data)}"'
++        etag = ds.ETag(generate_etag(data))
+     elif data is not None:
+         raise TypeError("Only one of 'data' or 'etag` may be given.")
+ 
+@@ -67,24 +70,25 @@
+         unmodified = True
+ 
+     if etag:
+-        etag, _ = unquote_etag(etag)
++        if isinstance(etag, str):
++            etag = ds.ETag.from_header(etag)
+ 
+         if etag is None:
+             unmodified = False
+         elif if_range is not None and if_range.etag is not None:
+-            unmodified = if_range.etag == etag
++            unmodified = if_range.etag == etag.value
+         else:
+             # https://tools.ietf.org/html/rfc7232#section-3.2
+             # "A recipient MUST use the weak comparison function when comparing
+             # entity-tags for If-None-Match"
+-            if if_none_match := ds.ETags.from_header(http_if_none_match):
+-                unmodified = if_none_match.contains_weak(etag)
++            if if_none_match := ds.ETagSet.from_header(http_if_none_match):
++                unmodified = if_none_match.contains_weak(etag.value)
+ 
+             # https://tools.ietf.org/html/rfc7232#section-3.1
+             # "Origin server MUST use the strong comparison function when
+             # comparing entity-tags for If-Match"
+-            if if_match := ds.ETags.from_header(http_if_match):
+-                unmodified = not if_match.is_strong(etag)
++            if if_match := ds.ETagSet.from_header(http_if_match):
++                unmodified = not if_match.is_strong(etag.value)
+ 
+     return not unmodified
+ 
+--- a/werkzeug/src/werkzeug/sansio/request.py
++++ b/werkzeug/src/werkzeug/sansio/request.py
+@@ -8,7 +8,7 @@
+ from .._header_property import header_property
+ from ..datastructures import Accept
+ from ..datastructures import Authorization
+-from ..datastructures import ETags
++from ..datastructures import ETagSet
+ from ..datastructures import Headers
+ from ..datastructures import HeaderSet
+ from ..datastructures import IfRange
+--- a/werkzeug/src/werkzeug/sansio/response.py
++++ b/werkzeug/src/werkzeug/sansio/response.py
+@@ -11,6 +11,7 @@
+ from ..datastructures import CallbackDict
+ from ..datastructures import ContentRange
+ from ..datastructures import ContentSecurityPolicy
++from ..datastructures import ETag
+ from ..datastructures import Headers
+ from ..datastructures import HeaderSet
+ from ..datastructures import ResponseCacheControl
+@@ -27,8 +28,6 @@
+ from ..http import parse_age
+ from ..http import parse_date
+ from ..http import parse_options_header
+-from ..http import quote_etag
+-from ..http import unquote_etag
+ from ..utils import get_content_type
+ 
+ 
+@@ -558,7 +557,48 @@
+         deprecate_str=True,
+     )
+ 
+-    # ETag
++    def _etag_on_update(self, value: ETag) -> None:
++        if header := value.to_header():
++            self.headers["ETag"] = header
++        else:
++            del self.headers["ETag"]
++
++    @property
++    def etag(self) -> ETag | None:
++        """The ``ETag`` header. An identifier for a specific version of the
++        resource. The client uses this to make conditional requests with
++        ``If-Match``, ``If-None-Match``, and ``If-Range``.
++
++        An :class:`.ETag`, or ``None`` if not set or invalid. Modifying the
++        instance updates the header. Set to an ``ETag``, a ``(value, weak)``
++        tuple, or a ``str`` which is the same as ``(value, False)``. Set to
++        ``None`` or use ``del`` to unset the header.
++
++        .. versionadded:: 3.2
++        """
++        if (value := ETag.from_header(self.headers.get("ETag"))) is None:
++            return None
++
++        value._on_update = self._etag_on_update
++        return value
++
++    @etag.setter
++    def etag(self, value: ETag | tuple[str, bool] | str | None) -> None:
++        if value is None:
++            del self.headers["ETag"]
++            return
++
++        if isinstance(value, str):
++            value = ETag(value)
++        elif isinstance(value, tuple):
++            value = ETag(*value)
++
++        value._on_update = self._etag_on_update
++        self._etag_on_update(value)
++
++    @etag.deleter
++    def etag(self) -> None:
++        del self.headers["ETag"]
+ 
+     cache_control = structure_property[ResponseCacheControl](
+         "Cache-Control",
+@@ -577,14 +617,47 @@
+     )
+ 
+     def set_etag(self, etag: str, weak: bool = False) -> None:
+-        """Set the ETag, and override the old one if there was one."""
+-        self.headers["ETag"] = quote_etag(etag, weak)
++        """Set the ETag, and override the old one if there was one.
++
++        .. deprecated:: 3.2
++            Will be removed in Werkzeug 3.3. Use the ``etag`` property instead.
++        """
++        import warnings
++
++        warnings.warn(
++            "The 'set_etag' method is deprecated and will be removed in"
++            " Werkzeug 3.3. Use the 'etag' property instead.",
++            DeprecationWarning,
++            stacklevel=2,
++        )
++
++        if '"' in etag:
++            raise ValueError(
++                "Unquoted ETag value cannot contain double-quote character."
++            )
++
++        self.headers["ETag"] = f'W/"{etag}"' if weak else f'"{etag}"'
+ 
+     def get_etag(self) -> tuple[str, bool] | tuple[None, None]:
+         """Return a tuple in the form ``(etag, is_weak)``.  If there is no
+         ETag the return value is ``(None, None)``.
++
++        .. deprecated:: 3.2
++            Will be removed in Werkzeug 3.3. Use the ``etag`` property instead.
+         """
+-        return unquote_etag(self.headers.get("ETag"))
++        import warnings
++
++        warnings.warn(
++            "The 'get_etag' method is deprecated and will be removed in"
++            " Werkzeug 3.3. Use the 'etag' property instead.",
++            DeprecationWarning,
++            stacklevel=2,
++        )
++
++        if (value := ETag.from_header(self.headers.get("ETag"))) is None:
++            return None, None
++
++        return value.value, value.weak
+ 
+     accept_ranges = header_property[str | None](
+         "Accept-Ranges",
+--- a/werkzeug/src/werkzeug/wrappers/response.py
++++ b/werkzeug/src/werkzeug/wrappers/response.py
+@@ -6,7 +6,8 @@
+ from urllib.parse import urljoin
+ 
+ from .._internal import _get_environ
+-from ..datastructures import ETags
++from ..datastructures import ETag
++from ..datastructures import ETagSet
+ from ..datastructures import Headers
+ from ..datastructures import Range
+ from ..http import generate_etag
+@@ -779,7 +780,7 @@
+                 self.headers.get("ETag"),
+                 last_modified=self.headers.get("Last-Modified"),
+             ):
+-                if ETags.from_header(environ.get("HTTP_IF_MATCH")):
++                if ETagSet.from_header(environ.get("HTTP_IF_MATCH")):
+                     self.status_code = 412
+                 else:
+                     self.status_code = 304
+@@ -807,7 +808,7 @@
+             Use SHA-1.
+         """
+         if overwrite or "ETag" not in self.headers:
+-            self.set_etag(generate_etag(self.get_data()), weak)
++            self.etag = ETag(generate_etag(self.get_data()), weak)
+ 
+ 
+ class ResponseStream:

@@ -1,0 +1,18 @@
+{"ts": 1791497796.018701, "task": "falcon", "argv": ["python", "-c", "import falcon, falcon.app, falcon.asgi.app as a; print(falcon.__file__, falcon.app.__file__, a.__file__, falcon.__version__)"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-A-1-a0/ws/falcon"}
+{"ts": 1791497824.0920808, "task": "boltons", "argv": ["python", "-m", "pytest", "tests", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-A-1-a0/ws/boltons"}
+{"ts": 1791497847.574497, "task": "boltons", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-A-1-a0/ws/boltons"}
+{"ts": 1791497851.0340889, "task": "markdown-it-py", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-A-1-a0/ws/markdown-it-py"}
+{"ts": 1791497866.7549891, "task": "markdown-it-py", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-A-1-a0/ws/markdown-it-py"}
+{"ts": 1791497873.403229, "task": "markdown-it-py", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-A-1-a0/ws/markdown-it-py"}
+{"ts": 1791497873.571946, "task": "markdown-it-py", "argv": ["python", "-m", "pytest", "tests", "--ignore=tests/test_packaging", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-A-1-a0/ws/markdown-it-py"}
+{"ts": 1791497887.2054222, "task": "boltons", "argv": ["python", "-m", "pytest", "tests", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-A-1-a0/ws/boltons"}
+{"ts": 1791497895.8906171, "task": "boltons", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-A-1-a0/ws/boltons"}
+{"ts": 1791497900.33778, "task": "pluggy", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-A-1-a0/ws/pluggy"}
+{"ts": 1791497900.432888, "task": "pluggy", "argv": ["python", "-c", "import pluggy;print(pluggy.__version__)"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-A-1-a0/ws/pluggy"}
+{"ts": 1791497900.569639, "task": "pluggy", "argv": ["python", "-m", "pytest", "testing", "--ignore=testing/benchmark.py", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-A-1-a0/ws/pluggy"}
+{"ts": 1791497901.6366642, "task": "boltons", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-A-1-a0/ws/boltons"}
+{"ts": 1791497914.2060359, "task": "pluggy", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-A-1-a0/ws/pluggy"}
+{"ts": 1791497914.292154, "task": "pluggy", "argv": ["python", "-m", "pytest", "testing", "--ignore=testing/benchmark.py", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-A-1-a0/ws/pluggy"}
+{"ts": 1791497914.725374, "task": "boltons", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-A-1-a0/ws/boltons"}
+{"ts": 1791497914.8014379, "task": "boltons", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-A-1-a0/ws/boltons"}
+{"ts": 1791497921.50126, "task": "boltons", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-A-1-a0/ws/boltons"}

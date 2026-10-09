@@ -3,13 +3,15 @@
 // (the dearest request seen, for it and for each request still in flight) would reach CAP_USD. The model is told
 // nothing: no protocol, no meter line, no effort change, and the refused request is answered with an empty end of turn.
 // Every request and every usage reading is logged to CAP_LOG in the format onbudget's own log uses.
-// Env: CAP_USD (dollars; required), CAP_LOG (jsonl path).
+// Env: CAP_USD (dollars; required), CAP_LOG (jsonl path), CAP_RULE ("reserve", the default, is the rule above;
+// "simple" refuses only once the spend has reached the cap: no reserve, nothing held back for requests in flight).
 import type { EngineInterface, Register, SessionUsage, TurnStepInput, TurnStepResult } from 'claude-code'
 
 const BOOTSTRAP_RESERVE_USD = 0.05 // as in onbudget
 const LOG_CHUNK = 200
 let boot: Promise<void> | null = null
 let cap = NaN
+let simple = false
 let base = 0 // the ledger when the session started (0 in a fresh run)
 let stepMark = 0
 let maxStep = 0
@@ -48,6 +50,7 @@ const ready = ($: EngineInterface) => (boot ??= (async () => {
   t0 = await $.clock.now()
   logPath = (await $.env.get('CAP_LOG'))?.trim() || undefined
   cap = Number((await $.env.get('CAP_USD'))?.trim())
+  simple = (await $.env.get('CAP_RULE'))?.trim() === 'simple'
   base = stepMark = ledgerOf(await $.session.usage())
 })().catch(err => { boot = null; throw err }))
 
@@ -66,7 +69,7 @@ async function* refuse(e: TurnStepInput): AsyncGenerator<any, TurnStepResult> {
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
-    try { await ready($); await log($, 'session.start', { cap, version: await $.session.version().catch(() => null) }) } catch (err) { await log($, 'hookfail', { where: 'session.start', error: errText(err) }) }
+    try { await ready($); await log($, 'session.start', { cap, rule: simple ? 'simple' : 'reserve', version: await $.session.version().catch(() => null) }) } catch (err) { await log($, 'hookfail', { where: 'session.start', error: errText(err) }) }
     return next(e)
   }).catch(($, e, next) => next(e))
 
@@ -76,7 +79,7 @@ export const register: Register = on => {
     const sentAt = await read($, ledger => ledger)
     const spent = sentAt - base
     const reserve = maxStep > 0 ? maxStep : BOOTSTRAP_RESERVE_USD
-    if (stopped || spent + reserve * (inFlight + 1) >= cap) {
+    if (stopped || (simple ? spent >= cap : spent + reserve * (inFlight + 1) >= cap)) {
       stopped = true
       await log($, 'stop', { event: 'cap-stop', spent, reserve, budget: cap, inFlight, agentId: e.agentId ?? null, index: e.index })
       return yield* refuse(e)

@@ -23,6 +23,7 @@ ALLOW = ['Bash(python:*)', 'Bash(python3:*)', 'Bash(pytest:*)']
 PLUGINS = {'capmod': f'{EVAL}/capmod', 'onbudget': ROOT, 'mockmodel': f'{EVAL}/mockmodel'}
 LOGGING_PLUGINS = ('capmod', 'onbudget')
 ARMS = {'A': dict(label='plain', plugins=('capmod',), budget_text=False),
+        'A0': dict(label='plain, simple cap', plugins=('capmod',), budget_text=False, env=dict(CAP_RULE='simple')),   # added after the first results: see README
         'B': dict(label='prompt-only', plugins=('capmod',), budget_text=True),
         'C': dict(label='onbudget', plugins=('onbudget',), budget_text=False)}
 LEVELS = {'TIGHT': dict(usd=4.20, raw='$4.20'), 'HARD': dict(usd=2.47, raw='$2.47'),      # frozen in the lab's v0/reference.json
@@ -89,7 +90,7 @@ def run_env(run_dir, spec, ws, extra=None):
     """(full environment, the variables the harness sets). The second is what env.json records."""
     ours = dict(CLAUDE_CODE_ENABLE_FUNCTION_HOOKS='1', DISABLE_AUTOUPDATER='1', WITHIN_WS=os.path.realpath(ws), WITHIN_TASKS=TASKS, ONBUDGET_SHIM_LOG=f'{run_dir}/shim.log')
     if spec['arm'] == 'C': ours.update(ONBUDGET=spec['raw'], ONBUDGET_LOG=f'{run_dir}/meter.jsonl')
-    else: ours.update(CAP_USD=f"{spec['usd']:.2f}", CAP_LOG=f'{run_dir}/meter.jsonl')
+    else: ours.update(CAP_USD=f"{spec['usd']:.2f}", CAP_LOG=f'{run_dir}/meter.jsonl', **(ARMS[spec['arm']].get('env') or {}))
     ours.update(extra or {})
     env = {k: v for k, v in lib.clean_env().items() if not k.startswith(STRIP_ENV)}
     env.update(ours); env['PATH'] = f'{SHIM}:' + env['PATH']

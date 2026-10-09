@@ -1,0 +1,27 @@
+{
+ "phase": "main-hard",
+ "mode": "session",
+ "arm": "B",
+ "level": "HARD",
+ "usd": 2.47,
+ "raw": "$2.47",
+ "run_id": "hard-B-1-a0",
+ "slot": "hard-B-1",
+ "attempt": 0,
+ "names": [
+  "boltons",
+  "falcon",
+  "markdown-it-py",
+  "pluggy",
+  "pydantic-settings",
+  "werkzeug",
+  "werkzeug-cond"
+ ],
+ "plugins": [
+  "capmod"
+ ],
+ "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-B-1-a0/ws",
+ "started": "2026-10-09T01:33:57",
+ "wall_s": 450.8,
+ "killed": null
+}

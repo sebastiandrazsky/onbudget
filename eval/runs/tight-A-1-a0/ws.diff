@@ -1,0 +1,1812 @@
+--- a/boltons/boltons/iterutils.py
++++ b/boltons/boltons/iterutils.py
+@@ -526,8 +526,9 @@
+     else:
+         # swap when all args are used
+         stop, start = start * 1.0, stop * 1.0
++    count = int(math.ceil((stop - start) / step))
+     cur = start
+-    while cur < stop:
++    for i in range(count):
+         yield cur
+         cur += step
+ 
+--- a/boltons/boltons/jsonutils.py
++++ b/boltons/boltons/jsonutils.py
+@@ -156,7 +156,7 @@
+             raise ValueError("'rel_seek' expected a float between"
+                              " -1.0 and 1.0, not %r" % rel_seek)
+         elif rel_seek < 0:
+-            rel_seek = 1.0 - rel_seek
++            rel_seek = 1.0 + rel_seek
+         self._rel_seek = rel_seek
+         self._blocksize = 4096
+         if rel_seek is not None:
+@@ -180,11 +180,13 @@
+         cur_pos = fo.tell()
+         while '\n' not in cur:
+             cur = fo.read(bsize)
++            if not cur:
++                # no newline between here and the end of the file,
++                # nothing left to align to
++                fo.seek(0, os.SEEK_END)
++                return
+             total_read += bsize
+-        try:
+-            newline_offset = cur.index('\n') + total_read - bsize
+-        except ValueError:
+-            raise  # TODO: seek to end?
++        newline_offset = cur.index('\n') + total_read - bsize
+         fo.seek(cur_pos + newline_offset)
+ 
+     def _init_rel_seek(self):
+--- a/boltons/boltons/strutils.py
++++ b/boltons/boltons/strutils.py
+@@ -1230,6 +1230,8 @@
+         Given an input string, run all substitutions given in the
+         constructor.
+         """
++        if not self.group_map:
++            return text
+         return self.combined_pattern.sub(self._get_value, text)
+ 
+ 
+--- a/boltons/boltons/tableutils.py
++++ b/boltons/boltons/tableutils.py
+@@ -290,7 +290,7 @@
+         if self.headers:
+             self._width = len(self.headers)
+             return
+-        self._width = max([len(d) for d in self._data])
++        self._width = max([len(d) for d in self._data], default=0)
+ 
+     def _fill(self):
+         width, filler = self._width, [None]
+@@ -565,17 +565,24 @@
+         """
+         lines = []
+         widths = []
+-        headers = list(self.headers)
++        headers = []
++        if with_headers and self.headers:
++            headers.extend(self.headers)
++            headers.extend([None] * (self._width - len(self.headers)))
++        text_headers = [to_text(h, maxlen=maxlen) for h in headers]
+         text_data = [[to_text(cell, maxlen=maxlen) for cell in row]
+                      for row in self._data]
+-        for idx in range(self._width):
+-            cur_widths = [len(row[idx]) for row in text_data]
+-            if with_headers:
+-                cur_widths.append(len(to_text(headers[idx], maxlen=maxlen)))
+-            widths.append(max(cur_widths))
+-        if with_headers:
++        width = max([self._width, len(text_headers)]
++                    + [len(row) for row in text_data])
++        for idx in range(width):
++            cur_widths = [len(row[idx]) for row in text_data
++                          if idx < len(row)]
++            if idx < len(text_headers):
++                cur_widths.append(len(text_headers[idx]))
++            widths.append(max(cur_widths, default=0))
++        if text_headers:
+             lines.append(' | '.join([h.center(widths[i])
+-                                     for i, h in enumerate(headers)]))
++                                     for i, h in enumerate(text_headers)]))
+             lines.append('-|-'.join(['-' * w for w in widths]))
+         for row in text_data:
+             lines.append(' | '.join([cell.center(widths[j])
+--- a/boltons/boltons/timeutils.py
++++ b/boltons/boltons/timeutils.py
+@@ -117,7 +117,15 @@
+     .. _dateutil: https://pypi.python.org/pypi/python-dateutil
+ 
+     """
+-    dt_args = [int(p) for p in _NONDIGIT_RE.split(iso_str)]
++    dt_str, _, frac_str = iso_str.partition('.')
++    dt_args = [int(p) for p in _NONDIGIT_RE.split(dt_str)]
++    if frac_str:
++        # the fractional seconds are a decimal fraction, not a count
++        # of microseconds. anything past microsecond precision is
++        # truncated.
++        frac_parts = _NONDIGIT_RE.split(frac_str)
++        dt_args.append(int(frac_parts[0][:6].ljust(6, '0')))
++        dt_args.extend([int(p) for p in frac_parts[1:]])
+     return datetime(*dt_args)
+ 
+ 
+@@ -343,6 +351,10 @@
+     datetime.date(2017, 7, 1)
+     datetime.date(2017, 8, 1)
+ 
++    A *step* which points away from *stop* yields nothing, much like
++    ``range(1, 5, -1)``. A *step* which cannot advance, like ``0`` or
++    ``(0, 0, 0)``, raises :exc:`ValueError`.
++
+     *Be careful when using stop=None, as this will yield an infinite
+     sequence of dates.*
+     """
+@@ -363,24 +375,53 @@
+     else:
+         raise ValueError('step expected int, timedelta, or tuple'
+                          ' (year, month, day), not: %r' % step)
+-    
++
+     m_step += y_step * 12
+ 
+-    if stop is None:
+-        finished = lambda now, stop: False
+-    elif start <= stop:
+-        finished = operator.gt if inclusive else operator.ge
+-    else:
+-        finished = operator.lt if inclusive else operator.le
+-    now = start
+-
+-    while not finished(now, stop):
+-        yield now
++    if not m_step and not d_step:
++        raise ValueError('step must be non-zero, not: %r' % (step,))
++
++    def _advance(now):
+         if m_step:
+             m_y_step, cur_month = divmod((now.month - 1) + m_step, 12)
+             now = now.replace(year=now.year + m_y_step,
+                               month=(cur_month + 1))
+-        now = now + d_step
++        return now + d_step
++
++    # The direction of a mixed-sign (year, month, day) step is only
++    # knowable by taking it.
++    try:
++        probe = _advance(start)
++    except (ValueError, OverflowError):
++        # out-of-range dates are raised from the iteration, as usual
++        forward = (m_step * timedelta(days=30) + d_step) > timedelta(0)
++    else:
++        if probe == start:
++            raise ValueError('step does not advance from start date %r: %r'
++                             % (start, step))
++        forward = probe > start
++
++    return _daterange_iter(start, stop, step, inclusive, forward, _advance)
++
++
++def _daterange_iter(start, stop, step, inclusive, forward, advance):
++    # the generator behind daterange(), split out so that argument
++    # errors are raised at call time
++    if stop is None:
++        finished = lambda now, stop: False
++    elif forward:
++        finished = operator.gt if inclusive else operator.ge
++    else:
++        finished = operator.lt if inclusive else operator.le
++    progressed = operator.gt if forward else operator.lt
++    now = start
++
++    while not finished(now, stop):
++        yield now
++        prev, now = now, advance(now)
++        if not progressed(now, prev):
++            raise ValueError('step stopped advancing at date %r: %r'
++                             % (prev, step))
+     return
+ 
+ 
+--- a/falcon/docs/_newsfragments/1942.newandimproved.rst
++++ b/falcon/docs/_newsfragments/1942.newandimproved.rst
+@@ -0,0 +1,8 @@
++A new method, :meth:`falcon.App.set_error_reporter` (and its ASGI counterpart,
++:meth:`falcon.asgi.App.set_error_reporter`), was added in order to make it
++possible to observe every exception raised while the framework is processing a
++request, e.g., to log it or to forward it to an error tracker. The reporter
++is called with the request, the exception, the responder params, and a flag
++indicating whether the exception is handled by an
++:meth:`error handler <falcon.App.add_error_handler>`, or is going to be
++propagated to the application server.
+--- a/falcon/falcon/_typing.py
++++ b/falcon/falcon/_typing.py
+@@ -111,6 +111,9 @@
+ # Error serializers
+ ErrorSerializer = Callable[[_ReqT, _RespT, 'HTTPError'], None]
+ 
++# Error reporters
++ErrorReporter = Callable[[_ReqT, Exception, dict[str, Any], bool], None]
++
+ # Sinks
+ SinkPrefix = Union[str, Pattern[str]]
+ 
+--- a/falcon/falcon/app.py
++++ b/falcon/falcon/app.py
+@@ -44,6 +44,7 @@
+ from falcon._typing import AsgiResponderCallable
+ from falcon._typing import AsgiResponderWsCallable
+ from falcon._typing import ErrorHandler
++from falcon._typing import ErrorReporter
+ from falcon._typing import ErrorSerializer
+ from falcon._typing import FindMethod
+ from falcon._typing import ProcessResponseMethod
+@@ -241,6 +242,7 @@
+     __slots__ = (
+         '_cors_enable',
+         '_error_handlers',
++        '_error_reporter',
+         '_independent_middleware',
+         '_middleware',
+         '_request_type',
+@@ -259,6 +261,7 @@
+ 
+     _cors_enable: bool
+     _error_handlers: dict[type[Exception], ErrorHandler[_ReqT, _RespT]]
++    _error_reporter: ErrorReporter[_ReqT] | None
+     _independent_middleware: bool
+     _middleware: helpers.PreparedMiddlewareResult
+     _request_type: type[_ReqT]
+@@ -387,6 +390,7 @@
+         self._response_type = response_type or Response  # type: ignore[assignment]
+ 
+         self._error_handlers = {}
++        self._error_reporter = None
+         self._serialize_error = helpers.default_serialize_error
+ 
+         self.req_options = RequestOptions()
+@@ -506,7 +510,15 @@
+ 
+             req_succeeded = False
+ 
+-        resp_status: str = code_to_http_status(resp.status)
++        try:
++            resp_status: str = code_to_http_status(resp.status)
++        except Exception as ex:
++            # NOTE: The response cannot be started; nothing is left to handle
++            #   this exception, so it is reported before reaching the server.
++            if self._error_reporter is not None:
++                self._error_reporter(req, ex, params, False)
++            raise
++
+         default_media_type: str | None = self.resp_options.default_media_type
+ 
+         if req.method == 'HEAD' or resp_status in _BODILESS_STATUS_CODES:
+@@ -545,10 +557,16 @@
+             if length is not None:
+                 resp._headers['content-length'] = str(length)
+ 
+-        headers: list[tuple[str, str]] = resp._wsgi_headers(default_media_type)
+-
+-        # Return the response per the WSGI spec.
+-        start_response(resp_status, headers)
++        try:
++            headers: list[tuple[str, str]] = resp._wsgi_headers(default_media_type)
++
++            # Return the response per the WSGI spec.
++            start_response(resp_status, headers)
++        except Exception as ex:
++            if self._error_reporter is not None:
++                self._error_reporter(req, ex, params, False)
++            raise
++
+         return body
+ 
+     # NOTE(caselit): the return type depends on the router, hardcoded to
+@@ -1083,6 +1101,61 @@
+ 
+         self._serialize_error = serializer
+ 
++    def set_error_reporter(self, reporter: ErrorReporter[_ReqT]) -> None:
++        """Set a callable to be notified of exceptions raised by the app.
++
++        The reporter is invoked for every exception that is passed to the
++        app's error handling, regardless of whether it was raised while
++        routing the request, in a middleware method, in a responder, or while
++        rendering the response body. This includes instances of
++        :class:`~.HTTPError` and :class:`~.HTTPStatus` too (e.g., a request to
++        an unknown route is reported as :class:`~.HTTPRouteNotFound`). The
++        reporter is called before the matching error handler (if any) is
++        invoked, which makes it a convenient place to log exceptions, or to
++        forward them to an error tracker::
++
++            def report_error(
++                req: Request, ex: Exception, params: dict[str, Any], handled: bool
++            ) -> None:
++                if not handled:
++                    logging.error('Unhandled exception', exc_info=ex)
++
++            app.set_error_reporter(report_error)
++
++        An exception raised from within an error handler is reported as well,
++        unless the handler simply re-raises the very same exception object
++        that it was handling. Instances of :class:`~.HTTPError` and
++        :class:`~.HTTPStatus` raised by a handler are reported as handled,
++        since the framework renders a response from them. Any other exception
++        raised by an error handler or the error serializer, as well as an
++        exception preventing the response from being started (such as an
++        invalid response status), is reported as unhandled, and is then
++        propagated to the application server.
++
++        Note:
++            Only one reporter may be set for an app; calling this method again
++            replaces the previously set reporter.
++
++        Note:
++            The reporter is always a regular synchronous callable, even when
++            it is set for an ASGI app. It should therefore not perform any
++            blocking I/O when used with :class:`falcon.asgi.App`.
++
++        Args:
++            reporter (callable): A function taking the form
++                ``func(req, ex, params, handled)``, where `req` is the request
++                object, `ex` is the exception being reported, `params` is a
++                ``dict`` of the keyword arguments that were (or would have
++                been) passed to the responder, and `handled` is a ``bool``
++                set to ``True`` if an error handler matching the type of the
++                exception is registered, or ``False`` if the exception is
++                going to be propagated to the application server.
++
++        .. versionadded:: 4.4
++        """
++
++        self._error_reporter = reporter
++
+     # ------------------------------------------------------------------------
+     # Helpers that require self
+     # ------------------------------------------------------------------------
+@@ -1263,15 +1336,40 @@
+         """
+         err_handler = self._find_error_handler(ex)
+ 
++        reporter = self._error_reporter
++        if reporter is not None:
++            reporter(req, ex, params, err_handler is not None)
++
+         # NOTE(caselit): Reset body, data and media before calling the handler
+         resp.text = resp.data = resp.media = None
+         if err_handler is not None:
++            # NOTE: Keep track of the last reported exception in order to
++            #   avoid reporting the very same (re-raised) object twice.
++            reported: Exception = ex
++
+             try:
+-                err_handler(req, resp, ex, params)
+-            except HTTPStatus as status:
+-                self._compose_status_response(req, resp, status)
+-            except HTTPError as error:
+-                self._compose_error_response(req, resp, error)
++                try:
++                    err_handler(req, resp, ex, params)
++                except HTTPStatus as status:
++                    if reporter is not None and status is not reported:
++                        reported = status
++                        reporter(req, status, params, True)
++
++                    self._compose_status_response(req, resp, status)
++                except HTTPError as error:
++                    if reporter is not None and error is not reported:
++                        reported = error
++                        reporter(req, error, params, True)
++
++                    self._compose_error_response(req, resp, error)
++            except Exception as unhandled:
++                # NOTE: Neither the error handler nor the error serializer
++                #   are expected to raise anything else than the above; this
++                #   exception is propagated to the application server.
++                if reporter is not None and unhandled is not reported:
++                    reporter(req, unhandled, params, False)
++
++                raise
+ 
+             return True
+ 
+--- a/falcon/falcon/asgi/app.py
++++ b/falcon/falcon/asgi/app.py
+@@ -45,6 +45,7 @@
+ from falcon._typing import AsgiSend
+ from falcon._typing import AsgiSinkCallable
+ from falcon._typing import AsyncMiddleware
++from falcon._typing import ErrorReporter
+ from falcon._typing import Resource
+ from falcon._typing import SinkPrefix
+ import falcon.app
+@@ -652,7 +653,15 @@
+ 
+             req_succeeded = False
+ 
+-        resp_status: int = resp.status_code
++        try:
++            resp_status: int = resp.status_code
++        except Exception as ex:
++            # NOTE: The response cannot be started; nothing is left to handle
++            #   this exception, so it is reported before reaching the server.
++            if self._error_reporter is not None:
++                self._error_reporter(req, ex, params, False)
++            raise
++
+         default_media_type: str | None = self.resp_options.default_media_type
+ 
+         if req.method == 'HEAD' or resp_status in _BODILESS_STATUS_CODES:
+@@ -685,15 +694,21 @@
+                 #   by turning around and calling it's own on_get().
+                 resp._headers['content-length'] = str(len(data)) if data else '0'
+ 
+-            await send(
+-                {
+-                    # PERF(vytas): Inline the value of
+-                    #   EventType.HTTP_RESPONSE_START in this critical code path.
+-                    'type': 'http.response.start',
+-                    'status': resp_status,
+-                    'headers': resp._asgi_headers(default_media_type),
+-                }
+-            )
++            try:
++                await send(
++                    {
++                        # PERF(vytas): Inline the value of
++                        #   EventType.HTTP_RESPONSE_START in this critical code
++                        #   path.
++                        'type': 'http.response.start',
++                        'status': resp_status,
++                        'headers': resp._asgi_headers(default_media_type),
++                    }
++                )
++            except Exception as ex:
++                if self._error_reporter is not None:
++                    self._error_reporter(req, ex, params, False)
++                raise
+ 
+             await send(_EVT_RESP_EOF)
+ 
+@@ -726,13 +741,20 @@
+ 
+             watcher = asyncio.create_task(watch_disconnect())
+ 
+-            await send(
+-                {
+-                    'type': EventType.HTTP_RESPONSE_START,
+-                    'status': resp_status,
+-                    'headers': resp._asgi_headers('text/event-stream'),
+-                }
+-            )
++            try:
++                await send(
++                    {
++                        'type': EventType.HTTP_RESPONSE_START,
++                        'status': resp_status,
++                        'headers': resp._asgi_headers('text/event-stream'),
++                    }
++                )
++            except Exception as ex:
++                watcher.cancel()
++
++                if self._error_reporter is not None:
++                    self._error_reporter(req, ex, params, False)
++                raise
+ 
+             # PERF(vytas): Check resp._registered_callbacks directly to shave
+             #   off a function call since this is a hot/critical code path.
+@@ -785,6 +807,42 @@
+             #   drop the HTTP connection prematurely, for example).
+             resp._headers['content-length'] = str(len(data))
+ 
++            try:
++                await send(
++                    {
++                        # PERF(vytas): Inline the value of
++                        #   EventType.HTTP_RESPONSE_START in this critical code
++                        #   path.
++                        'type': 'http.response.start',
++                        'status': resp_status,
++                        'headers': resp._asgi_headers(default_media_type),
++                    }
++                )
++            except Exception as ex:
++                if self._error_reporter is not None:
++                    self._error_reporter(req, ex, params, False)
++                raise
++
++            await send(
++                {
++                    # PERF(vytas): Inline the value of
++                    #   EventType.HTTP_RESPONSE_BODY in this critical code path.
++                    'type': 'http.response.body',
++                    'body': data,
++                }
++            )
++
++            # PERF(vytas): Check resp._registered_callbacks directly to shave
++            #   off a function call since this is a hot/critical code path.
++            if resp._registered_callbacks:
++                self._schedule_callbacks(resp)
++            return
++
++        stream = resp.stream
++        if not stream:
++            resp._headers['content-length'] = '0'
++
++        try:
+             await send(
+                 {
+                     # PERF(vytas): Inline the value of
+@@ -794,35 +852,10 @@
+                     'headers': resp._asgi_headers(default_media_type),
+                 }
+             )
+-
+-            await send(
+-                {
+-                    # PERF(vytas): Inline the value of
+-                    #   EventType.HTTP_RESPONSE_BODY in this critical code path.
+-                    'type': 'http.response.body',
+-                    'body': data,
+-                }
+-            )
+-
+-            # PERF(vytas): Check resp._registered_callbacks directly to shave
+-            #   off a function call since this is a hot/critical code path.
+-            if resp._registered_callbacks:
+-                self._schedule_callbacks(resp)
+-            return
+-
+-        stream = resp.stream
+-        if not stream:
+-            resp._headers['content-length'] = '0'
+-
+-        await send(
+-            {
+-                # PERF(vytas): Inline the value of
+-                #   EventType.HTTP_RESPONSE_START in this critical code path.
+-                'type': 'http.response.start',
+-                'status': resp_status,
+-                'headers': resp._asgi_headers(default_media_type),
+-            }
+-        )
++        except Exception as ex:
++            if self._error_reporter is not None:
++                self._error_reporter(req, ex, params, False)
++            raise
+ 
+         if stream:
+             # Detect whether this is one of the following:
+@@ -1098,6 +1131,67 @@
+ 
+             self._error_handlers[exc] = handler_callable
+ 
++    def set_error_reporter(self, reporter: ErrorReporter[_ReqT]) -> None:
++        """Set a callable to be notified of exceptions raised by the app.
++
++        The reporter is invoked for every exception that is passed to the
++        app's error handling, regardless of whether it was raised while
++        routing the request, in a middleware method, in a responder, or while
++        rendering the response body. This includes instances of
++        :class:`~falcon.HTTPError` and :class:`~falcon.HTTPStatus` too (e.g.,
++        a request to an unknown route is reported as
++        :class:`~falcon.HTTPRouteNotFound`). The reporter is called before the
++        matching error handler (if any) is invoked, which makes it a
++        convenient place to log exceptions, or to forward them to an error
++        tracker::
++
++            def report_error(
++                req: Request, ex: Exception, params: dict[str, Any], handled: bool
++            ) -> None:
++                if not handled:
++                    logging.error('Unhandled exception', exc_info=ex)
++
++            app.set_error_reporter(report_error)
++
++        An exception raised from within an error handler is reported as well,
++        unless the handler simply re-raises the very same exception object
++        that it was handling. Instances of :class:`~falcon.HTTPError` and
++        :class:`~falcon.HTTPStatus` raised by a handler are reported as
++        handled, since the framework renders a response from them. Any other
++        exception raised by an error handler or the error serializer, as well
++        as an exception preventing the response from being started (such as an
++        invalid response status, or a header value that cannot be encoded), is
++        reported as unhandled, and is then propagated to the application
++        server.
++
++        Exceptions raised while handling a WebSocket connection are reported
++        in the same way as those raised while processing a regular HTTP
++        request.
++
++        Note:
++            Only one reporter may be set for an app; calling this method again
++            replaces the previously set reporter.
++
++        Note:
++            Unlike error handlers, the reporter must be a regular synchronous
++            callable (not a coroutine function), exactly as in the case of a
++            WSGI app. Since it is invoked directly on the event loop, it
++            should not perform any blocking I/O.
++
++        Args:
++            reporter (callable): A function taking the form
++                ``func(req, ex, params, handled)``, where `req` is the request
++                object, `ex` is the exception being reported, `params` is a
++                ``dict`` of the keyword arguments that were (or would have
++                been) passed to the responder, and `handled` is a ``bool``
++                set to ``True`` if an error handler matching the type of the
++                exception is registered, or ``False`` if the exception is
++                going to be propagated to the application server.
++
++        .. versionadded:: 4.4
++        """
++        super().set_error_reporter(reporter)
++
+     # ------------------------------------------------------------------------
+     # Helper methods
+     # ------------------------------------------------------------------------
+@@ -1403,26 +1497,52 @@
+         """
+         err_handler = self._find_error_handler(ex)
+ 
++        reporter = self._error_reporter
++        if reporter is not None:
++            reporter(req, ex, params, err_handler is not None)
++
+         if resp:
+             # NOTE(caselit): Reset body, data and media before calling the handler
+             resp.text = resp.data = resp.media = None
+ 
+         if err_handler is not None:
++            # NOTE: Keep track of the last reported exception in order to
++            #   avoid reporting the very same (re-raised) object twice.
++            reported: Exception = ex
++
+             try:
+-                kwargs = {}
+-
+-                # PERF(vytas): Using the LRU-cache backed misc._has_arg_name
+-                #   here as inspect.signature (and by proxy misc.get_argnames)
+-                #   can be very slow (on the order of magnitude of 10 µs).
+-                if ws is not None and _has_arg_name(err_handler, 'ws'):
+-                    kwargs['ws'] = ws
+-
+-                await err_handler(req, resp, ex, params, **kwargs)
+-
+-            except HTTPStatus as status:
+-                await self._http_status_handler(req, resp, status, params, ws=ws)
+-            except HTTPError as error:
+-                await self._http_error_handler(req, resp, error, params, ws=ws)
++                try:
++                    kwargs = {}
++
++                    # PERF(vytas): Using the LRU-cache backed misc._has_arg_name
++                    #   here as inspect.signature (and by proxy
++                    #   misc.get_argnames) can be very slow (on the order of
++                    #   magnitude of 10 µs).
++                    if ws is not None and _has_arg_name(err_handler, 'ws'):
++                        kwargs['ws'] = ws
++
++                    await err_handler(req, resp, ex, params, **kwargs)
++
++                except HTTPStatus as status:
++                    if reporter is not None and status is not reported:
++                        reported = status
++                        reporter(req, status, params, True)
++
++                    await self._http_status_handler(req, resp, status, params, ws=ws)
++                except HTTPError as error:
++                    if reporter is not None and error is not reported:
++                        reported = error
++                        reporter(req, error, params, True)
++
++                    await self._http_error_handler(req, resp, error, params, ws=ws)
++            except Exception as unhandled:
++                # NOTE: Neither the error handler nor the error serializer
++                #   are expected to raise anything else than the above; this
++                #   exception is propagated to the application server.
++                if reporter is not None and unhandled is not reported:
++                    reporter(req, unhandled, params, False)
++
++                raise
+ 
+             return True
+ 
+--- a/markdown-it-py/markdown_it/common/utils.py
++++ b/markdown-it-py/markdown_it/common/utils.py
+@@ -250,11 +250,32 @@
+     return ch in MD_ASCII_PUNCT
+ 
+ 
++MD_TRIM_CHARS = (
++    "\t\n\x0b\x0c\r \xa0\u1680"
++    "\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a"
++    "\u2028\u2029\u202f\u205f\u3000"
++)
++"""Characters removed by JavaScript's ``String.prototype.trim``, minus U+FEFF.
++
++Unlike ``str.isspace()``, this does not include
++U+001C, U+001D, U+001E, U+001F and U+0085.
++"""
++
++MD_TRIM_RE = re.compile("[" + re.escape(MD_TRIM_CHARS) + "]+")
++
++
++def mdTrim(string: str) -> str:
++    """Strip leading and trailing ``MD_TRIM_CHARS``,
++    like JavaScript's ``String.prototype.trim``.
++    """
++    return string.strip(MD_TRIM_CHARS)
++
++
+ def normalizeReference(string: str) -> str:
+     """Helper to unify [reference labels]."""
+     # Trim and collapse whitespace
+     #
+-    string = re.sub(r"\s+", " ", string.strip())
++    string = MD_TRIM_RE.sub(" ", mdTrim(string))
+ 
+     # In node v10 'ẞ'.toLowerCase() === 'Ṿ', which is presumed to be a bug
+     # fixed in v12 (couldn't find any details).
+--- a/markdown-it-py/markdown_it/renderer.py
++++ b/markdown-it-py/markdown_it/renderer.py
+@@ -12,7 +12,7 @@
+ import inspect
+ from typing import Any, ClassVar, Protocol
+ 
+-from .common.utils import escapeHtml, unescapeAll
++from .common.utils import MD_TRIM_RE, escapeHtml, mdTrim, unescapeAll
+ from .token import Token
+ from .utils import EnvType, OptionsDict
+ 
+@@ -268,12 +268,12 @@
+         env: EnvType,
+     ) -> str:
+         token = tokens[idx]
+-        info = unescapeAll(token.info).strip() if token.info else ""
++        info = mdTrim(unescapeAll(token.info)) if token.info else ""
+         langName = ""
+         langAttrs = ""
+ 
+         if info:
+-            arr = info.split(maxsplit=1)
++            arr = MD_TRIM_RE.split(info, maxsplit=1)
+             langName = arr[0]
+             if len(arr) == 2:
+                 langAttrs = arr[1]
+--- a/markdown-it-py/markdown_it/rules_block/heading.py
++++ b/markdown-it-py/markdown_it/rules_block/heading.py
+@@ -4,7 +4,7 @@
+ 
+ import logging
+ 
+-from ..common.utils import isStrSpace
++from ..common.utils import isStrSpace, mdTrim
+ from .state_block import StateBlock
+ 
+ LOGGER = logging.getLogger(__name__)
+@@ -62,7 +62,7 @@
+     token.map = [startLine, state.line]
+ 
+     token = state.push("inline", "", 0)
+-    token.content = state.src[pos:maximum].strip()
++    token.content = mdTrim(state.src[pos:maximum])
+     token.map = [startLine, state.line]
+     token.children = []
+ 
+--- a/markdown-it-py/markdown_it/rules_block/lheading.py
++++ b/markdown-it-py/markdown_it/rules_block/lheading.py
+@@ -1,6 +1,7 @@
+ # lheading (---, ==)
+ import logging
+ 
++from ..common.utils import mdTrim
+ from .state_block import StateBlock
+ 
+ LOGGER = logging.getLogger(__name__)
+@@ -65,7 +66,7 @@
+         # Didn't find valid underline
+         return False
+ 
+-    content = state.getLines(startLine, nextLine, state.blkIndent, False).strip()
++    content = mdTrim(state.getLines(startLine, nextLine, state.blkIndent, False))
+ 
+     state.line = nextLine + 1
+ 
+--- a/markdown-it-py/markdown_it/rules_block/paragraph.py
++++ b/markdown-it-py/markdown_it/rules_block/paragraph.py
+@@ -2,6 +2,7 @@
+ 
+ import logging
+ 
++from ..common.utils import mdTrim
+ from .state_block import StateBlock
+ 
+ LOGGER = logging.getLogger(__name__)
+@@ -47,7 +48,7 @@
+ 
+         nextLine += 1
+ 
+-    content = state.getLines(startLine, nextLine, state.blkIndent, False).strip()
++    content = mdTrim(state.getLines(startLine, nextLine, state.blkIndent, False))
+ 
+     state.line = nextLine
+ 
+--- a/markdown-it-py/markdown_it/rules_block/table.py
++++ b/markdown-it-py/markdown_it/rules_block/table.py
+@@ -3,7 +3,7 @@
+ 
+ import re
+ 
+-from ..common.utils import charStrAt, isStrSpace
++from ..common.utils import charStrAt, isStrSpace, mdTrim
+ from .state_block import StateBlock
+ 
+ headerLineRe = re.compile(r"^:?-+:?$")
+@@ -108,7 +108,7 @@
+     columns = lineText.split("|")
+     aligns = []
+     for i in range(len(columns)):
+-        t = columns[i].strip()
++        t = mdTrim(columns[i])
+         if not t:
+             # allow empty columns before and after table, but not in between columns;
+             # e.g. allow ` |---| `, disallow ` ---||--- `
+@@ -126,7 +126,7 @@
+         else:
+             aligns.append("")
+ 
+-    lineText = getLine(state, startLine).strip()
++    lineText = mdTrim(getLine(state, startLine))
+     if "|" not in lineText:
+         return False
+     if state.is_code_block(startLine):
+@@ -171,7 +171,7 @@
+         # note in markdown-it this map was removed in v12.0.0 however, we keep it,
+         # since it is helpful to propagate to children tokens
+         token.map = [startLine, startLine + 1]
+-        token.content = columns[i].strip()
++        token.content = mdTrim(columns[i])
+         token.children = []
+ 
+         token = state.push("th_close", "th", -1)
+@@ -193,7 +193,7 @@
+ 
+         if terminate:
+             break
+-        lineText = getLine(state, nextLine).strip()
++        lineText = mdTrim(getLine(state, nextLine))
+         if not lineText:
+             break
+         if state.is_code_block(nextLine):
+@@ -227,7 +227,7 @@
+             # since it is helpful to propagate to children tokens
+             token.map = [nextLine, nextLine + 1]
+             try:
+-                token.content = columns[i].strip() if columns[i] else ""
++                token.content = mdTrim(columns[i]) if columns[i] else ""
+             except IndexError:
+                 token.content = ""
+             token.children = []
+--- a/pluggy/changelog/442.bugfix.rst
++++ b/pluggy/changelog/442.bugfix.rst
+@@ -0,0 +1,3 @@
++A value passed by a hook call is now passed to *hookimpls* which declare a default value for the argument, instead of the *hookimpl*'s default always being used.
++The precedence is: the value passed by the hook call, then the *hookspec*'s default value, then the *hookimpl*'s default value.
++See :ref:`hookimpl_arg_default` for details.
+--- a/pluggy/docs/index.rst
++++ b/pluggy/docs/index.rst
+@@ -573,10 +573,9 @@
+ breaking existing *hookimpls*.
+ 
+ Only arguments without default values are considered for this opt-in
+-matching. Arguments with defaults in a *hookimpl* are treated as optional
+-keyword arguments and are not passed by pluggy, even when the hook caller
+-provides a value with the same name. If a *hookimpl* needs a value from the
+-hook call, declare it without a default value.
++matching. Arguments with defaults in a *hookimpl* are optional: they are
++passed by pluggy when the hook call or the *hookspec* provides a value, see
++:ref:`hookimpl_arg_default`.
+ 
+ In other words this is ok:
+ 
+@@ -639,6 +638,46 @@
+     pm.hook.myhook(config=config, args=args)
+     # New caller; hookimpls will get new_arg="get this".
+     pm.hook.myhook(config=config, args=args, new_arg="get this")
++
++
++.. _hookimpl_arg_default:
++
++Hookimpl argument defaults
++^^^^^^^^^^^^^^^^^^^^^^^^^^
++A *hookimpl* can also declare a default value for an argument. The value the
++*hookimpl* receives for such an argument is, in order of precedence:
++
++1. the value passed by the hook call,
++2. the :ref:`hookspec's default value <hookspec_arg_default>`,
++3. the *hookimpl*'s own default value.
++
++The *hookimpl*'s default is therefore only used when neither the caller nor
++the *hookspec* provides the argument. This allows a plugin to use a newly
++added argument while still working with an older version of the host program
++whose *hookspec* does not have the argument yet:
++
++.. code-block:: python
++
++    @hookspec
++    def myhook(config, args):
++        pass
++
++
++    @hookimpl
++    def myhook(config, args, new_arg="fallback"):
++        print(new_arg)
++
++
++    # Older hookspec without new_arg; the hookimpl gets new_arg="fallback".
++    pm.hook.myhook(config=config, args=args)
++
++This applies to plain *hookimpls* and to both kinds of
++:ref:`wrappers <hookwrappers>`.
++
++.. versionchanged:: 1.7
++    A value passed by the hook call, or a *hookspec* default, now takes
++    precedence over the *hookimpl*'s default. Previously the *hookimpl*'s
++    default was always used.
+ 
+ 
+ .. _firstresult:
+--- a/pluggy/src/pluggy/_execution.py
++++ b/pluggy/src/pluggy/_execution.py
+@@ -25,15 +25,20 @@
+ 
+ 
+ def run_old_style_hookwrapper(
+-    hook_impl: HookImpl, hook_name: str, args: Sequence[object]
++    hook_impl: HookImpl,
++    hook_name: str,
++    args: Sequence[object],
++    kwargs: Mapping[str, object] | None = None,
+ ) -> Teardown:
+     """
+     backward compatibility wrapper to run a old style hookwrapper as a wrapper
+     """
++    if kwargs is None:
++        kwargs = {}
+     if TYPE_CHECKING:
+-        teardown = cast(Teardown, hook_impl.function(*args))
++        teardown = cast(Teardown, hook_impl.function(*args, **kwargs))
+     else:
+-        teardown = hook_impl.function(*args)
++        teardown = hook_impl.function(*args, **kwargs)
+     try:
+         next(teardown)
+     except StopIteration:
+@@ -102,15 +107,25 @@
+                 raise HookCallError(
+                     f"hook call must provide argument {e.args[0]!r}"
+                 ) from e
++            # Arguments for which the hookimpl declares a default: a value
++            # from the hook call (or the hookspec default, already merged
++            # into caller_kwargs) takes precedence over the hookimpl default.
++            kwargs = {
++                argname: caller_kwargs[argname]
++                for argname in hook_impl.kwargnames
++                if argname in caller_kwargs
++            }
+ 
+             if hook_impl.hookwrapper:
+-                function_gen = run_old_style_hookwrapper(hook_impl, hook_name, args)
++                function_gen = run_old_style_hookwrapper(
++                    hook_impl, hook_name, args, kwargs
++                )
+ 
+                 next(function_gen)  # first yield
+                 teardowns.append(function_gen)
+ 
+             elif hook_impl.wrapper:
+-                res = hook_impl.function(*args)
++                res = hook_impl.function(*args, **kwargs)
+                 # If this cast is not valid, a type error is raised below,
+                 # which is the desired response.
+                 if TYPE_CHECKING:
+@@ -123,7 +138,7 @@
+                     _raise_wrapfail(function_gen, "did not yield")
+                 teardowns.append(function_gen)
+             else:
+-                res = hook_impl.function(*args)
++                res = hook_impl.function(*args, **kwargs)
+                 if res is not None:
+                     results.append(res)
+                     if firstresult:  # halt further impl calls
+--- a/pluggy/testing/test_invocations.py
++++ b/pluggy/testing/test_invocations.py
+@@ -448,13 +448,9 @@
+ 
+         assert pm.hook.hello(arg=1) == [(1, "impl-default")]
+ 
+-    def test_does_not_override_hookimpl_default(self, pm: PluginManager) -> None:
+-        """If an impl provides its own default, it takes precedence over both
+-        the spec default and call value.
+-
+-        NOTE: This is verifying existing behavior, but it's not necessarily what
+-        we want (#442).
+-        """
++    def test_overrides_hookimpl_default(self, pm: PluginManager) -> None:
++        """If an impl provides its own default, the call value takes precedence,
++        then the spec default, then the impl default (#442)."""
+ 
+         class Api:
+             @hookspec
+@@ -469,8 +465,50 @@
+         pm.add_hookspecs(Api)
+         pm.register(Plugin())
+ 
+-        assert pm.hook.hello(arg=1) == ["impl-default"]
+-        assert pm.hook.hello(arg=1, new_arg="call") == ["impl-default"]
++        assert pm.hook.hello(arg=1) == ["spec-default"]
++        assert pm.hook.hello(arg=1, new_arg="call") == ["call"]
++
++    @pytest.mark.parametrize("kind", ["impl", "wrapper", "hookwrapper"])
++    def test_hookimpl_default_precedence(self, pm: PluginManager, kind: str) -> None:
++        """Call value > spec default > impl default, for every kind of impl."""
++
++        class Api:
++            @hookspec
++            def hello(self, arg, spec_arg="spec-default"):
++                pass
++
++        seen = []
++
++        class Plugin:
++            if kind == "impl":
++
++                @hookimpl
++                def hello(self, arg, spec_arg="impl-default", impl_arg="impl-default"):
++                    seen.append((arg, spec_arg, impl_arg))
++
++            elif kind == "wrapper":
++
++                @hookimpl(wrapper=True)
++                def hello(self, arg, spec_arg="impl-default", impl_arg="impl-default"):
++                    seen.append((arg, spec_arg, impl_arg))
++                    return (yield)
++
++            else:
++
++                @hookimpl(hookwrapper=True)
++                def hello(self, arg, spec_arg="impl-default", impl_arg="impl-default"):
++                    seen.append((arg, spec_arg, impl_arg))
++                    yield
++
++        pm.add_hookspecs(Api)
++        pm.register(Plugin())
++
++        pm.hook.hello(arg=1)
++        pm.hook.hello(arg=2, spec_arg="call")
++        assert seen == [
++            (1, "spec-default", "impl-default"),
++            (2, "call", "impl-default"),
++        ]
+ 
+     def test_new_call_argument_is_not_delivered_by_old_spec(
+         self, pm: PluginManager
+--- a/pydantic-settings/_tmp_check.py
++++ b/pydantic-settings/_tmp_check.py
+@@ -0,0 +1,145 @@
++import typing
++from collections import OrderedDict, deque
++from collections.abc import MutableMapping, MutableSequence
++from typing import Optional
++
++import pytest
++from pydantic import Field
++
++from pydantic_settings import BaseSettings, CliApp, CliPositionalArg, CliVariadicArg, SettingsError
++from pydantic_settings.sources.utils import _annotation_contains_collection
++
++COLLS = [
++    tuple, frozenset, typing.Tuple, MutableSequence, MutableMapping, deque, OrderedDict,
++    tuple[str, ...], frozenset[str], typing.Tuple[str, ...], MutableSequence[str], MutableMapping[str, str],
++    deque[str], OrderedDict[str, str], typing.Deque[str], typing.OrderedDict[str, str], typing.FrozenSet[str],
++    list, set, dict, list[int], typing.Sequence[int], typing.Mapping[str, int],
++]
++
++
++@pytest.mark.parametrize('t', COLLS)
++def test_detect(t):
++    assert _annotation_contains_collection(t)
++    assert _annotation_contains_collection(t | None if not isinstance(t, typing._GenericAlias) else Optional[t])
++    assert _annotation_contains_collection(Optional[t])
++    assert _annotation_contains_collection(typing.Annotated[t, 'x'])
++
++
++@pytest.mark.parametrize('t', [str, bytes, bytearray, int, Optional[str], str | None, bytes | None, typing.Literal['a']])
++def test_not_detect(t):
++    assert not _annotation_contains_collection(t)
++
++
++SEQ = [
++    (tuple[str, ...], ('a', 'b')), (tuple, ('a', 'b')), (typing.Tuple[str, ...], ('a', 'b')),
++    (typing.Tuple, ('a', 'b')), (frozenset[str], frozenset({'a', 'b'})), (frozenset, frozenset({'a', 'b'})),
++    (MutableSequence[str], ['a', 'b']), (deque[str], deque(['a', 'b'])), (deque, deque(['a', 'b'])),
++    (Optional[tuple[str, ...]], ('a', 'b')), (frozenset[str] | None, frozenset({'a', 'b'})),
++    (tuple[str, str], ('a', 'b')),
++]
++
++
++@pytest.mark.parametrize('t,exp', SEQ)
++def test_seq(t, exp):
++    class V(BaseSettings):
++        values: CliVariadicArg[t]
++
++    r = CliApp.run(V, cli_args=['--values', 'a', 'b']).values
++    assert r == exp and type(r) is type(exp)
++
++    class P(BaseSettings):
++        values: CliPositionalArg[CliVariadicArg[t]]
++
++    r = CliApp.run(P, cli_args=['a', 'b']).values
++    assert r == exp and type(r) is type(exp)
++
++    class P2(BaseSettings):
++        values: CliPositionalArg[t]
++
++    r = CliApp.run(P2, cli_args=['a', 'b']).values
++    assert r == exp and type(r) is type(exp)
++
++    class N(BaseSettings):
++        values: t
++
++    r = CliApp.run(N, cli_args=['--values', 'a', '--values', 'b']).values
++    assert r == exp and type(r) is type(exp)
++    r = CliApp.run(N, cli_args=['--values', 'a,b']).values
++    assert r == exp
++    r = CliApp.run(N, cli_args=['--values', '["a","b"]']).values
++    assert r == exp
++    if t is not tuple[str, str]:
++        r = CliApp.run(N, cli_args=['--values', 'a']).values
++        assert r == type(exp)(['a'])
++
++
++MAPS = [
++    (OrderedDict[str, str], OrderedDict), (MutableMapping[str, str], dict), (OrderedDict, OrderedDict),
++    (MutableMapping, dict), (Optional[OrderedDict[str, str]], OrderedDict),
++    (MutableMapping[str, str] | None, dict), (typing.OrderedDict[str, str], OrderedDict),
++]
++
++
++@pytest.mark.parametrize('t,typ', MAPS)
++def test_map(t, typ):
++    exp = typ([('a', 'b'), ('c', 'd')])
++
++    class V(BaseSettings):
++        values: CliVariadicArg[t]
++
++    r = CliApp.run(V, cli_args=['--values', 'a=b', 'c=d']).values
++    assert r == exp and type(r) is typ
++
++    class P(BaseSettings):
++        values: CliPositionalArg[CliVariadicArg[t]]
++
++    r = CliApp.run(P, cli_args=['a=b', 'c=d']).values
++    assert r == exp and type(r) is typ
++
++    class N(BaseSettings):
++        values: t
++
++    r = CliApp.run(N, cli_args=['--values', 'a=b', '--values', 'c=d']).values
++    assert r == exp and type(r) is typ
++    r = CliApp.run(N, cli_args=['--values', 'a=b,c=d']).values
++    assert r == exp
++    r = CliApp.run(N, cli_args=['--values', '{"a":"b"}', '--values', 'c=d']).values
++    assert r == exp
++    r = CliApp.run(N, cli_args=['--values', 'a=b']).values
++    assert r == typ([('a', 'b')])
++
++
++@pytest.mark.parametrize('t', [str, bytes, bytearray, Optional[str]])
++def test_scalar(t):
++    class N(BaseSettings, cli_exit_on_error=False):
++        name: t
++
++    assert CliApp.run(N, cli_args=['--name', 'a']).name in ('a', b'a', bytearray(b'a'))
++    with pytest.raises(SettingsError, match='unrecognized arguments: b'):
++        CliApp.run(N, cli_args=['--name', 'a', 'b'])
++    with pytest.raises(SettingsError, match='CliVariadicArg requires a Sequence, Set, or Mapping type for name'):
++
++        class X(BaseSettings):
++            name: CliVariadicArg[t]
++
++        CliApp.run(X, cli_args=[])
++
++    with pytest.raises(SettingsError, match='CliVariadicArg requires a Sequence, Set, or Mapping type for name'):
++
++        class Y(BaseSettings):
++            name: CliPositionalArg[CliVariadicArg[t]]
++
++        CliApp.run(Y, cli_args=['a'])
++
++
++def test_misc():
++    class N(BaseSettings):
++        tags: frozenset[str] = frozenset()
++        nums: tuple[int, ...] = ()
++        od: OrderedDict[str, int] = Field(default_factory=OrderedDict)
++
++    r = CliApp.run(N, cli_args=['--tags', 'x', '--tags', 'y', '--nums', '1', '--nums=2,3', '--od', 'a=1'])
++    assert r.tags == frozenset({'x', 'y'}) and r.nums == (1, 2, 3) and r.od == OrderedDict(a=1)
++    print(CliApp.serialize(r))
++    assert CliApp.run(N, cli_args=CliApp.serialize(r)) == r
++    assert CliApp.run(N, cli_args=[]) == N()
+--- a/pydantic-settings/pydantic_settings/sources/providers/cli.py
++++ b/pydantic-settings/pydantic_settings/sources/providers/cli.py
+@@ -17,7 +17,7 @@
+     _SubParsersAction,
+ )
+ from collections import defaultdict
+-from collections.abc import Callable, Mapping, Sequence
++from collections.abc import Callable, Mapping
+ from enum import Enum
+ from functools import cached_property
+ from itertools import chain
+@@ -63,10 +63,12 @@
+ )
+ from ..utils import (
+     InitState,
++    _annotation_contains_collection,
+     _annotation_contains_types,
+     _annotation_enum_val_to_name,
+     _get_alias_names,
+     _get_model_fields,
++    _is_collection_type,
+     _is_function,
+     _strip_annotated,
+     parse_env_vars,
+@@ -277,9 +279,7 @@
+ 
+     @cached_property
+     def is_append_action(self) -> bool:
+-        return not self.subcommand_dest and _annotation_contains_types(
+-            self.field_info.annotation, (list, set, dict, Sequence, Mapping), is_strip_annotated=True
+-        )
++        return not self.subcommand_dest and _annotation_contains_collection(self.field_info.annotation)
+ 
+     @cached_property
+     def is_parser_submodel(self) -> bool:
+@@ -701,7 +701,7 @@
+             or not any(
+                 type_
+                 for type_ in get_args(merge_type)
+-                if type_ is not type(None) and get_origin(type_) not in (dict, Mapping)
++                if type_ is not type(None) and not _is_collection_type(get_origin(type_), (Mapping,))
+             )
+         ):
+             inferred_type = merge_type
+@@ -880,9 +880,7 @@
+                 alias_names, *_ = _get_alias_names(field_name, field_info)
+                 if len(alias_names) > 1:
+                     raise SettingsError(f'positional argument {model.__name__}.{field_name} has multiple aliases')
+-                is_append_action = _annotation_contains_types(
+-                    field_info.annotation, (list, set, dict, Sequence, Mapping), is_strip_annotated=True
+-                )
++                is_append_action = _annotation_contains_collection(field_info.annotation)
+                 if not is_append_action:
+                     positional_args.append((field_name, field_info))
+                 else:
+@@ -1209,9 +1207,7 @@
+ 
+     def _convert_append_action(self, kwargs: dict[str, Any], field_info: FieldInfo, is_append_action: bool) -> None:
+         if _CliVariadicArg in field_info.metadata and not is_append_action:
+-            raise SettingsError(
+-                f'CliVariadicArg requires a list, set, dict, Sequence, or Mapping type for {kwargs["dest"]}'
+-            )
++            raise SettingsError(f'CliVariadicArg requires a Sequence, Set, or Mapping type for {kwargs["dest"]}')
+         if is_append_action:
+             if _CliVariadicArg in field_info.metadata:
+                 # A required variadic option must consume at least one value, otherwise a bare flag would
+@@ -1219,7 +1215,7 @@
+                 kwargs['nargs'] = '+' if kwargs.get('required') else '*'
+             else:
+                 kwargs['action'] = 'append'
+-            if _annotation_contains_types(field_info.annotation, (dict, Mapping), is_strip_annotated=True):
++            if _annotation_contains_collection(field_info.annotation, (Mapping,)):
+                 self._cli_dict_args[kwargs['dest']] = field_info.annotation
+ 
+     def _convert_bool_flag(self, kwargs: dict[str, Any], field_info: FieldInfo, model_default: Any) -> None:
+--- a/pydantic-settings/pydantic_settings/sources/utils.py
++++ b/pydantic-settings/pydantic_settings/sources/utils.py
+@@ -270,6 +270,30 @@
+     return False
+ 
+ 
++def _is_collection_type(type_: Any, types: tuple[type[Any], ...] = (Sequence, AbstractSet, Mapping)) -> bool:
++    """Check if a type is a subclass of any of the specified collection types.
++
++    `str`, `bytes` and `bytearray` are sequences, but hold a single value and are never collections.
++    """
++    try:
++        return (
++            isinstance(type_, type) and issubclass(type_, types) and not issubclass(type_, (str, bytes, bytearray))
++        )
++    except TypeError:
++        # Some types, e.g. `TypedDict`, do not support class checks.
++        return False
++
++
++def _annotation_contains_collection(
++    annotation: type[Any] | None, types: tuple[type[Any], ...] = (Sequence, AbstractSet, Mapping)
++) -> bool:
++    """Check if a type annotation contains a subclass of any of the specified collection types."""
++    annotation = _strip_annotated(annotation)
++    if _is_collection_type(annotation, types) or _is_collection_type(get_origin(annotation), types):
++        return True
++    return any(_annotation_contains_collection(type_, types) for type_ in get_args(annotation))
++
++
+ def _strip_annotated(annotation: Any) -> Any:
+     if typing_objects.is_annotated(get_origin(annotation)):
+         return annotation.__origin__
+@@ -384,6 +408,7 @@
+ 
+ __all__ = [
+     'InitState',
++    '_annotation_contains_collection',
+     '_annotation_contains_types',
+     '_annotation_enum_name_to_val',
+     '_annotation_enum_val_to_name',
+@@ -392,6 +417,7 @@
+     '_get_alias_names',
+     '_get_env_var_key',
+     '_get_model_fields',
++    '_is_collection_type',
+     '_is_function',
+     '_literal_has_numeric_enum',
+     '_parse_env_none_str',
+--- a/pydantic-settings/tests/test_source_cli.py
++++ b/pydantic-settings/tests/test_source_cli.py
+@@ -2019,7 +2019,7 @@
+ 
+ 
+ def test_cli_variadic_non_collection_raises():
+-    with pytest.raises(SettingsError, match='CliVariadicArg requires a list, set, dict, Sequence, or Mapping type'):
++    with pytest.raises(SettingsError, match='CliVariadicArg requires a Sequence, Set, or Mapping type for param'):
+ 
+         class Settings(BaseSettings, cli_parse_args=True):
+             param: CliVariadicArg[str]
+--- a/werkzeug/src/werkzeug/datastructures/__init__.py
++++ b/werkzeug/src/werkzeug/datastructures/__init__.py
+@@ -10,7 +10,8 @@
+ from .cache_control import RequestCacheControl as RequestCacheControl
+ from .cache_control import ResponseCacheControl as ResponseCacheControl
+ from .csp import ContentSecurityPolicy as ContentSecurityPolicy
+-from .etag import ETags as ETags
++from .etag import ETag as ETag
++from .etag import ETagSet as ETagSet
+ from .file_storage import FileMultiDict as FileMultiDict
+ from .file_storage import FileStorage as FileStorage
+ from .headers import EnvironHeaders as EnvironHeaders
+@@ -44,6 +45,16 @@
+             )
+             return _CharsetAccept
+ 
++        if name == "ETags":
++            warnings.warn(
++                "The 'ETags' class was renamed to 'ETagSet'. The old name is"
++                " deprecated and will be removed in Werkzeug 3.3. Use 'ETagSet'"
++                " instead.",
++                DeprecationWarning,
++                stacklevel=2,
++            )
++            return ETagSet
++
+         from . import mixins
+         from . import structures
+ 
+--- a/werkzeug/src/werkzeug/datastructures/etag.py
++++ b/werkzeug/src/werkzeug/datastructures/etag.py
+@@ -20,7 +20,118 @@
+ )
+ 
+ 
+-class ETags(cabc.Collection[str]):
++class ETag:
++    """A parsed ``ETag`` header, a single entity tag value that may be marked
++    weak.
++
++    :attr:`.Response.etag` returns an instance, or ``None`` if the header is
++    not set. Set it to an instance to set the header. Modifying the instance
++    will update the header.
++
++    :param value: The unquoted value.
++    :param weak: Whether the value is marked weak.
++
++    .. versionadded:: 3.2
++    """
++
++    def __init__(self, value: str, weak: bool = False) -> None:
++        self._value = value
++        self._weak = weak
++        self._on_update: cabc.Callable[[ETag], None] | None = None
++
++    @property
++    def value(self) -> str:
++        """The unquoted value."""
++        return self._value
++
++    @value.setter
++    def value(self, value: str) -> None:
++        self._value = value
++
++        if self._on_update is not None:
++            self._on_update(self)
++
++    @property
++    def weak(self) -> bool:
++        """Whether the value is marked weak."""
++        return self._weak
++
++    @weak.setter
++    def weak(self, value: bool) -> None:
++        self._weak = value
++
++        if self._on_update is not None:
++            self._on_update(self)
++
++    @classmethod
++    def from_header(cls, value: str | None) -> te.Self | None:
++        """Parse an ``ETag`` header value and create an instance of this class,
++        or ``None`` if the value is empty or invalid. A valid value must be
++        quoted and may have an optional weak ``W/`` prefix.
++
++        .. code-block:: pycon
++
++            >>> ETag.from_header('"strong"')
++            <ETag 'strong' strong>
++            >>> ETag.from_header('W/"weak"')
++            <ETag 'weak' weak>
++            >>> ETag.from_header('no_quotes') is None
++            True
++
++        Use :meth:`ETagSet.from_header` to parse a list of ETag values.
++        """
++        if not value:
++            return None
++
++        weak = False
++        start = 0
++
++        if value.startswith(("W/", "w/")):
++            weak = True
++            start = 2
++
++        if not (
++            len(value) >= start + 2
++            and value.startswith('"', start)
++            and value.endswith('"')
++        ):
++            # invalid, value must be quoted
++            return None
++
++        return cls(value[start + 1 : -1], weak)
++
++    def to_header(self) -> str:
++        """Convert to an ``ETag`` header value. Empty if the value is empty or
++        is invalid because it contains a double quote character.
++        """
++        if not self._value or '"' in self._value:
++            return ""
++
++        if self._weak:
++            return f'W/"{self._value}"'
++
++        return f'"{self._value}"'
++
++    def __eq__(self, other: object) -> bool:
++        if not isinstance(other, ETag):
++            return NotImplemented
++
++        return self._value == other._value and bool(self._weak) == bool(other._weak)
++
++    __hash__ = None  # type: ignore[assignment]
++
++    def __bool__(self) -> bool:
++        return bool(self._value)
++
++    def __str__(self) -> str:
++        return self.to_header()
++
++    def __repr__(self) -> str:
++        kind = "weak" if self._weak else "strong"
++        return f"<{type(self).__name__} {self._value!r} {kind}>"
++
++
++class ETagSet(cabc.Collection[str]):
+     """A parsed ``If-Match`` or ``If-None-Match`` header.
+ 
+     :attr:`.Request.if_match` and :attr:`.Request.if_none_match` return an
+@@ -29,6 +140,10 @@
+     :param strong_etags: Unquoted values that were not marked weak.
+     :param weak_etags: Unquoted values that were marked weak.
+     :param star_tag: Whether ``*`` is present in the header value.
++
++    .. versionchanged:: 3.2
++        Renamed from ``ETags`` to ``ETagSet``. The old name is deprecated and
++        will be removed in Werkzeug 3.3.
+     """
+ 
+     def __init__(
+@@ -102,17 +217,13 @@
+ 
+         :param etag: The raw, quoted value to check.
+         """
+-        from ..http import unquote_etag
+-
+-        value, weak = unquote_etag(etag)
+-
+-        if value is None or weak is None:
++        if (parsed := ETag.from_header(etag)) is None:
+             return False
+ 
+-        if weak:
+-            return self.contains_weak(value)
+-
+-        return self.contains(value)
++        if parsed.weak:
++            return self.contains_weak(parsed.value)
++
++        return self.contains(parsed.value)
+ 
+     @classmethod
+     def from_header(cls, value: str | None) -> te.Self:
+--- a/werkzeug/src/werkzeug/datastructures/range.py
++++ b/werkzeug/src/werkzeug/datastructures/range.py
+@@ -8,8 +8,7 @@
+ from ..http import http_date
+ from ..http import is_byte_range_valid
+ from ..http import parse_date
+-from ..http import quote_etag
+-from ..http import unquote_etag
++from .etag import ETag
+ 
+ if t.TYPE_CHECKING:
+     import typing_extensions as te
+@@ -49,19 +48,17 @@
+         if (date := parse_date(value)) is not None:
+             return cls(date=date)
+ 
+-        value, weak = unquote_etag(value)
+-
+-        if weak:
+-            return cls()
+-
+-        return cls(etag=value)
++        if (etag := ETag.from_header(value)) is None or etag.weak:
++            return cls()
++
++        return cls(etag=etag.value)
+ 
+     def to_header(self) -> str:
+         """Convert to an ``If-Range`` header value."""
+         if self.date is not None:
+             return http_date(self.date)
+         if self.etag is not None:
+-            return quote_etag(self.etag)
++            return ETag(self.etag).to_header()
+         return ""
+ 
+     def __bool__(self) -> bool:
+--- a/werkzeug/src/werkzeug/http.py
++++ b/werkzeug/src/werkzeug/http.py
+@@ -1031,7 +1031,20 @@
+ 
+     :param etag: The ETag to quote.
+     :param weak: Add a weak marker to the quoted value.
+-    """
++
++    .. deprecated:: 3.2
++        Will be removed in Werkzeug 3.3. Use the ``ETag.to_header`` method
++        instead.
++    """
++    import warnings
++
++    warnings.warn(
++        "The 'quote_etag' function is deprecated and will be removed in"
++        " Werkzeug 3.3. Use the 'ETag.to_header' method instead.",
++        DeprecationWarning,
++        stacklevel=2,
++    )
++
+     if '"' in etag:
+         raise ValueError("Unquoted ETag value cannot contain double-quote character.")
+ 
+@@ -1060,53 +1073,56 @@
+         >>> unquote_etag('no_quotes')
+         (None, None)
+ 
+-    Use :meth:`.ETags.from_header` to parse a list of ETag values.
++    Use :meth:`.ETagSet.from_header` to parse a list of ETag values.
+ 
+     :param etag: A valid ETag to unquote.
+     :return: A tuple ``(value, weak)``, or ``(None, None)`` if the
+         value is empty or invalid.
+ 
++    .. deprecated:: 3.2
++        Will be removed in Werkzeug 3.3. Use the ``ETag.from_header`` method
++        instead.
++
+     .. versionchanged:: 3.2
+         Does not accept invalid unquoted values.
+     """
+-    if not etag:
+-        return None, None
+-
+-    weak = False
+-    start = 0
+-
+-    if etag.startswith(("W/", "w/")):
+-        weak = True
+-        start = 2
+-
+-    if not (etag.startswith('"', start) and etag.endswith('"', start)):
+-        # invalid, value must be quoted
+-        return None, None
+-
+-    return etag[start + 1 : -1], weak
+-
+-
+-def _parse_etags(value: str | None) -> ds.ETags:
+-    """Parse an ETag header.
+-
+-    :param value: the tag header to parse
+-    :return: an :class:`~werkzeug.datastructures.ETags` object.
+-
+-    .. deprecated:: 3.2
+-        Will be removed in Werkzeug 3.3. Use the 'ETags.from_header' method instead.
+-
+-    .. versionchanged:: 3.2
+-        Does not accept invalid unquoted values.
+-    """
+     import warnings
+ 
+     warnings.warn(
+-        "The 'parse_etags' function is deprecated and will be removed in"
+-        " Werkzeug 3.3. Use the 'ETags.from_header' method instead.",
++        "The 'unquote_etag' function is deprecated and will be removed in"
++        " Werkzeug 3.3. Use the 'ETag.from_header' method instead.",
+         DeprecationWarning,
+         stacklevel=2,
+     )
+-    return ds.ETags.from_header(value)
++
++    if (parsed := ds.ETag.from_header(etag)) is None:
++        return None, None
++
++    return parsed.value, parsed.weak
++
++
++def _parse_etags(value: str | None) -> ds.ETagSet:
++    """Parse an ETag header.
++
++    :param value: the tag header to parse
++    :return: an :class:`~werkzeug.datastructures.ETagSet` object.
++
++    .. deprecated:: 3.2
++        Will be removed in Werkzeug 3.3. Use the 'ETagSet.from_header' method
++        instead.
++
++    .. versionchanged:: 3.2
++        Does not accept invalid unquoted values.
++    """
++    import warnings
++
++    warnings.warn(
++        "The 'parse_etags' function is deprecated and will be removed in"
++        " Werkzeug 3.3. Use the 'ETagSet.from_header' method instead.",
++        DeprecationWarning,
++        stacklevel=2,
++    )
++    return ds.ETagSet.from_header(value)
+ 
+ 
+ def generate_etag(data: bytes) -> str:
+@@ -1245,7 +1261,7 @@
+ 
+ def is_resource_modified(
+     environ: WSGIEnvironment,
+-    etag: str | None = None,
++    etag: ds.ETag | str | None = None,
+     data: bytes | None = None,
+     last_modified: datetime | str | None = None,
+     ignore_if_range: bool = True,
+@@ -1253,13 +1269,17 @@
+     """Convenience method for conditional requests.
+ 
+     :param environ: the WSGI environment of the request to be checked.
+-    :param etag: the ETag for the response for comparison.
++    :param etag: the ETag for the response for comparison. Either an
++                 :class:`.ETag` or a quoted ``ETag`` header value.
+     :param data: or alternatively the data of the response to automatically
+                  generate an ETag value using :func:`generate_etag`.
+     :param last_modified: an optional date of the last modification.
+     :param ignore_if_range: If `False`, `If-Range` header will be taken into
+                             account.
+     :return: `True` if the resource was modified, otherwise `False`.
++
++    .. versionchanged:: 3.2
++        ``etag`` can be an :class:`.ETag`.
+ 
+     .. versionchanged:: 1.0
+         The check is run for methods other than ``GET`` and ``HEAD``.
+@@ -1593,7 +1613,7 @@
+             "parse_cache_control_header": "CacheControl.from_header",
+             "parse_content_range_header": "ContentRange.from_header",
+             "parse_csp_header": "ContentSecurityPolicy.from_header",
+-            "parse_etags": "ETags.from_header",
++            "parse_etags": "ETagSet.from_header",
+             "parse_if_range_header": "IfRange.from_header",
+             "parse_range_header": "Range.from_header",
+             "parse_set_header": "HeaderSet.from_header",
+--- a/werkzeug/src/werkzeug/sansio/http.py
++++ b/werkzeug/src/werkzeug/sansio/http.py
+@@ -7,7 +7,6 @@
+ from .._internal import _dt_as_utc
+ from ..http import generate_etag
+ from ..http import parse_date
+-from ..http import unquote_etag
+ 
+ 
+ def is_resource_modified(
+@@ -16,7 +15,7 @@
+     http_if_modified_since: str | None = None,
+     http_if_none_match: str | None = None,
+     http_if_match: str | None = None,
+-    etag: str | None = None,
++    etag: ds.ETag | str | None = None,
+     data: bytes | None = None,
+     last_modified: datetime | str | None = None,
+     ignore_if_range: bool = True,
+@@ -27,7 +26,8 @@
+     :param http_if_modified_since: If-Modified-Since HTTP header
+     :param http_if_none_match: If-None-Match HTTP header
+     :param http_if_match: If-Match HTTP header
+-    :param etag: the ETag for the response for comparison.
++    :param etag: the ETag for the response for comparison. Either an
++                 :class:`.ETag` or a quoted ``ETag`` header value.
+     :param data: or alternatively the data of the response to automatically
+                  generate an ETag using :func:`generate_etag`.
+     :param last_modified: an optional date of the last modification.
+@@ -35,10 +35,13 @@
+                             account.
+     :return: `True` if the resource was modified, otherwise `False`.
+ 
++    .. versionchanged:: 3.2
++        ``etag`` can be an :class:`.ETag`.
++
+     .. versionadded:: 2.2
+     """
+     if etag is None and data is not None:
+-        etag = f'"{generate_etag(data)}"'
++        etag = ds.ETag(generate_etag(data))
+     elif data is not None:
+         raise TypeError("Only one of 'data' or 'etag` may be given.")
+ 
+@@ -67,24 +70,25 @@
+         unmodified = True
+ 
+     if etag:
+-        etag, _ = unquote_etag(etag)
++        if isinstance(etag, str):
++            etag = ds.ETag.from_header(etag)
+ 
+         if etag is None:
+             unmodified = False
+         elif if_range is not None and if_range.etag is not None:
+-            unmodified = if_range.etag == etag
++            unmodified = if_range.etag == etag.value
+         else:
+             # https://tools.ietf.org/html/rfc7232#section-3.2
+             # "A recipient MUST use the weak comparison function when comparing
+             # entity-tags for If-None-Match"
+-            if if_none_match := ds.ETags.from_header(http_if_none_match):
+-                unmodified = if_none_match.contains_weak(etag)
++            if if_none_match := ds.ETagSet.from_header(http_if_none_match):
++                unmodified = if_none_match.contains_weak(etag.value)
+ 
+             # https://tools.ietf.org/html/rfc7232#section-3.1
+             # "Origin server MUST use the strong comparison function when
+             # comparing entity-tags for If-Match"
+-            if if_match := ds.ETags.from_header(http_if_match):
+-                unmodified = not if_match.is_strong(etag)
++            if if_match := ds.ETagSet.from_header(http_if_match):
++                unmodified = not if_match.is_strong(etag.value)
+ 
+     return not unmodified
+ 

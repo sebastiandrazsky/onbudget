@@ -1,0 +1,25 @@
+{"ts": 1791503609.48913, "task": "boltons", "argv": ["python", "/tmp/bt_check.py"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-C-2-a0/ws/boltons"}
+{"ts": 1791503609.568225, "task": "boltons", "argv": ["python", "-m", "pytest", "tests", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-C-2-a0/ws/boltons"}
+{"ts": 1791503620.043225, "task": "boltons", "argv": ["python", "../_chk.py"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-C-2-a0/ws/boltons"}
+{"ts": 1791503626.4470909, "task": "boltons", "argv": ["python", "-c", "exec(open('../_chk.py').read())"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-C-2-a0/ws/boltons"}
+{"ts": 1791503665.97604, "task": "pluggy", "argv": ["python", "-c", "exec(open('../_chk2.py').read())"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-C-2-a0/ws/pluggy"}
+{"ts": 1791503666.088001, "task": "pluggy", "argv": ["python", "-m", "pytest", "testing", "--ignore=testing/benchmark.py", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-C-2-a0/ws/pluggy"}
+{"ts": 1791503667.048553, "task": "boltons", "argv": ["python", "-c", "exec(open('../_chk.py').read())"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-C-2-a0/ws/boltons"}
+{"ts": 1791503667.185777, "task": "boltons", "argv": ["python", "-m", "pytest", "tests", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-C-2-a0/ws/boltons"}
+{"ts": 1791503678.055239, "task": "boltons", "argv": ["python", "-c", "exec(open('../_chk.py').read())"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-C-2-a0/ws/boltons"}
+{"ts": 1791503678.176706, "task": "boltons", "argv": ["python", "-m", "pytest", "tests", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-C-2-a0/ws/boltons"}
+{"ts": 1791503688.5996082, "task": "pluggy", "argv": ["python", "-m", "pytest", "testing", "--ignore=testing/benchmark.py", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-C-2-a0/ws/pluggy"}
+{"ts": 1791503715.063883, "task": "markdown-it-py", "argv": ["python", "-c", "exec(open('../_p3.py').read())"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-C-2-a0/ws/markdown-it-py"}
+{"ts": 1791503715.169852, "task": "markdown-it-py", "argv": ["python", "-m", "pytest", "tests", "--ignore=tests/test_packaging", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-C-2-a0/ws/markdown-it-py"}
+{"ts": 1791503728.028418, "task": "markdown-it-py", "argv": ["python", "-c", "exec(open('../_p3.py').read())"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-C-2-a0/ws/markdown-it-py"}
+{"ts": 1791503728.194304, "task": "markdown-it-py", "argv": ["python", "-m", "pytest", "tests", "--ignore=tests/test_packaging", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-C-2-a0/ws/markdown-it-py"}
+{"ts": 1791503771.156128, "task": "pydantic-settings", "argv": ["python", "-c", "exec(open('../_p5.py').read())"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-C-2-a0/ws/pydantic-settings"}
+{"ts": 1791503771.2384288, "task": "pydantic-settings", "argv": ["python", "-c", "exec(open('../_chk5.py').read())"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-C-2-a0/ws/pydantic-settings"}
+{"ts": 1791503771.535029, "task": "pydantic-settings", "argv": ["python", "-m", "pytest", "tests", "--ignore=tests/test_docs.py", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-C-2-a0/ws/pydantic-settings"}
+{"ts": 1791503781.746484, "task": "pydantic-settings", "argv": ["python", "-c", "exec(open('../_chk5.py').read())"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-C-2-a0/ws/pydantic-settings"}
+{"ts": 1791503786.9636421, "task": "pydantic-settings", "argv": ["python", "-m", "pytest", "tests", "--ignore=tests/test_docs.py", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-C-2-a0/ws/pydantic-settings"}
+{"ts": 1791503840.889171, "task": "falcon", "argv": ["python", "-c", "exec(open('../_p2.py').read())"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-C-2-a0/ws/falcon"}
+{"ts": 1791503840.975994, "task": "falcon", "argv": ["python", "-m", "pytest", "tests", "--ignore=tests/asgi/test_asgi_servers.py", "--ignore=tests/test_wsgi_servers.py", "-q", "-x", "-p", "no:cacheprovider"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-C-2-a0/ws/falcon"}
+{"ts": 1791503885.8588579, "task": "falcon", "argv": ["python", "-c", "exec(open('../_chk2f.py').read())"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-C-2-a0/ws/falcon"}
+{"ts": 1791503895.416651, "task": "falcon", "argv": ["python", "-c", "exec(open('../_chk2f.py').read())"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-C-2-a0/ws/falcon"}
+{"ts": 1791503895.741648, "task": "falcon", "argv": ["python", "-m", "pytest", "tests", "--ignore=tests/asgi/test_asgi_servers.py", "--ignore=tests/test_wsgi_servers.py", "-q", "-p", "no:cacheprovider"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-C-2-a0/ws/falcon"}

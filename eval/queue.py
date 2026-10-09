@@ -3,6 +3,7 @@
   python3 eval/queue.py plan                         slots, order and worst-case spend; runs nothing
   python3 eval/queue.py run --phase smoke            the three small smoke runs only
   python3 eval/queue.py run --phase main             main-tight, main-hard, pct, extra (refused until smoke has completed)
+  python3 eval/queue.py run --phase added            simple-cap, hard-extra (the runs added after the first results)
   python3 eval/queue.py run                          resume the phase selection used last (smoke when there is none)
   python3 eval/queue.py status                       progress, spend against the ceiling, current run, last quota readings
   python3 eval/queue.py retry <slot>                 release a slot without retries left, or a smoke slot whose run the watchdog killed
@@ -24,8 +25,8 @@ MAX_RETRIES = 2                                    # a slot whose run was void o
 H5_WAIT_AT, D7_STOP_AT, RESET_MARGIN = 80, 90, 90  # percent, percent, seconds
 INFRA_BACKOFF_MIN = (10, 20)
 ECHO = True                                        # also print log lines (they land in queue.nohup)
-PHASES = ('smoke', 'main-tight', 'main-hard', 'pct', 'extra')
-SELECT = {'smoke': PHASES[:1], 'main': PHASES[1:], 'all': PHASES}
+PHASES = ('smoke', 'main-tight', 'main-hard', 'pct', 'extra', 'simple-cap', 'hard-extra')   # the last two were added after the first results
+SELECT = {'smoke': PHASES[:1], 'main': PHASES[1:5], 'added': PHASES[5:], 'all': PHASES}
 
 
 class Stop(RuntimeError):
@@ -45,6 +46,13 @@ def log(msg):
     if ECHO: print(f'{stamp()} {msg}', flush=True)
 
 
+def full_order(state):
+    """The persisted queue order, with any phase the state does not know yet in its seeded order."""
+    order = dict(state.get('order') or {})
+    for p in PHASES: order.setdefault(p, [s['id'] for s in slots() if s['phase'] == p])
+    return order
+
+
 # ---------------------------------------------------------------- slots
 def slots():
     """Every slot in queue order: phases in order, a fixed-seed shuffle inside each phase (the two extra slots keep their order)."""
@@ -56,7 +64,9 @@ def slots():
               'main-tight': [session('main-tight', arm, 'TIGHT', i) for arm in 'ABC' for i in (1, 2)],
               'main-hard': [session('main-hard', arm, 'HARD', i) for arm in 'ABC' for i in (1, 2)],
               'pct': [session('pct', 'C', 'PCT', 1)],
-              'extra': [session('extra', 'C', 'TIGHT', 1, 'extra-tight'), session('extra', 'B', 'PCT', 1, 'extra-pct')]}
+              'extra': [session('extra', 'C', 'TIGHT', 1, 'extra-tight'), session('extra', 'B', 'PCT', 1, 'extra-pct')],
+              'simple-cap': [session('simple-cap', 'A0', level, i) for level in ('TIGHT', 'HARD') for i in (1, 2)],
+              'hard-extra': [session('hard-extra', arm, 'HARD', 3) for arm in 'BC']}
     rng = random.Random(SEED); out = []
     for phase in PHASES:
         if phase != 'extra': rng.shuffle(groups[phase])
@@ -236,6 +246,7 @@ def begin():
     state = jload(f('state.json'), {}) or {}
     state.setdefault('seed', SEED); state.setdefault('ledger', {}); state.setdefault('exhausted', [])
     state.setdefault('order', {p: [s['id'] for s in slots() if s['phase'] == p] for p in PHASES})
+    for p in PHASES: state['order'].setdefault(p, [s['id'] for s in slots() if s['phase'] == p])   # phases added to a queue already begun
     return state
 
 
@@ -357,7 +368,7 @@ def run(selection):
 # ---------------------------------------------------------------- read-only views
 def plan():
     rows = scores(); state = jload(f('state.json'), {}) or {}; ceil = ceiling(state.get('ceiling')); spent = spend(state, rows); total = spent; cap_sum = 0
-    by_id = {s['id']: s for s in slots()}; order = state.get('order') or {p: [s['id'] for s in slots() if s['phase'] == p] for p in PHASES}
+    by_id = {s['id']: s for s in slots()}; order = full_order(state)
     out = [f'ceiling ${ceil:.2f} | spent so far ${spent:.2f} | seed {SEED} | kill margin ${harness.KILL_OVER:.2f} | model {harness.MODEL} effort {harness.EFFORT}',
            f"{'#':>2} {'slot':<18} {'phase':<10} {'arm':<3} {'mode':<7} {'level':<5} {'budget':<7} {'cap':>5} {'worst':>6} {'cum. worst':>10}  state"]
     for i, sid in enumerate((sid for p in PHASES for sid in order[p]), 1):
@@ -378,7 +389,7 @@ def plan():
 def status():
     state = jload(f('state.json'), {}) or {}; rows = scores(); lock = jload(f('queue.lock')) or {}; live = bool(lock) and alive(lock.get('pid'))
     pause = jload(f('PAUSED.json')); cur = state.get('current') or {}; by_id = {s['id']: s for s in slots()}
-    order = state.get('order') or {p: [s['id'] for s in slots() if s['phase'] == p] for p in PHASES}
+    order = full_order(state)
     word = (f"PAUSED ({pause.get('kind')}: {pause.get('reason')})" if live and pause else f"RUNNING (pid {lock.get('pid')})" if live else
             'DONE' if os.path.exists(f('DONE.txt')) else 'STOPPED' if os.path.exists(f('STOPPED.txt')) else 'NOT RUNNING')
     out = [f"queue: {word} | phases {state.get('selection') or '-'} | spend ${spend(state, rows):.2f} of ${ceiling(state.get('ceiling')):.2f} | claude {state.get('claude_version') or '-'} | "

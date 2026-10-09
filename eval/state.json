@@ -21,6 +21,111 @@
    "cost": 0.1710572,
    "status": "done",
    "started": "2026-10-09 00:06:24"
+  },
+  "tight-B-1-a0": {
+   "slot": "tight-B-1",
+   "reserved": 5.2,
+   "cost": 1.9173082,
+   "status": "done",
+   "started": "2026-10-09 00:08:02"
+  },
+  "tight-A-1-a0": {
+   "slot": "tight-A-1",
+   "reserved": 5.2,
+   "cost": 3.3501197999999994,
+   "status": "done",
+   "started": "2026-10-09 00:16:03"
+  },
+  "tight-C-2-a0": {
+   "slot": "tight-C-2",
+   "reserved": 5.2,
+   "cost": 3.5650420000000005,
+   "status": "done",
+   "started": "2026-10-09 00:20:08"
+  },
+  "tight-C-1-a0": {
+   "slot": "tight-C-1",
+   "reserved": 5.2,
+   "cost": 3.0729593999999993,
+   "status": "done",
+   "started": "2026-10-09 00:37:16"
+  },
+  "tight-A-2-a0": {
+   "slot": "tight-A-2",
+   "reserved": 5.2,
+   "cost": 3.250117199999999,
+   "status": "done",
+   "started": "2026-10-09 00:49:01"
+  },
+  "tight-B-2-a0": {
+   "slot": "tight-B-2",
+   "reserved": 5.2,
+   "cost": 2.6876588,
+   "status": "done",
+   "started": "2026-10-09 00:58:35"
+  },
+  "hard-C-1-a0": {
+   "slot": "hard-C-1",
+   "reserved": 3.47,
+   "cost": 2.3200627999999996,
+   "status": "done",
+   "started": "2026-10-09 01:09:35"
+  },
+  "hard-A-1-a0": {
+   "slot": "hard-A-1",
+   "reserved": 3.47,
+   "cost": 2.005418,
+   "status": "done",
+   "started": "2026-10-09 01:18:43"
+  },
+  "hard-B-2-a0": {
+   "slot": "hard-B-2",
+   "reserved": 3.47,
+   "cost": 2.0463486,
+   "status": "done",
+   "started": "2026-10-09 01:25:03"
+  },
+  "hard-B-1-a0": {
+   "slot": "hard-B-1",
+   "reserved": 3.47,
+   "cost": 2.3286302000000005,
+   "status": "done",
+   "started": "2026-10-09 01:33:55"
+  },
+  "hard-A-2-a0": {
+   "slot": "hard-A-2",
+   "reserved": 3.47,
+   "cost": 1.7773396,
+   "status": "done",
+   "started": "2026-10-09 01:42:51"
+  },
+  "hard-C-2-a0": {
+   "slot": "hard-C-2",
+   "reserved": 3.47,
+   "cost": 1.839913,
+   "status": "done",
+   "started": "2026-10-09 01:52:18"
+  },
+  "pct-C-1-a0": {
+   "slot": "pct-C-1",
+   "reserved": 4.88,
+   "cost": 2.8255642000000005,
+   "status": "done",
+   "started": "2026-10-09 02:10:20"
+  },
+  "extra-tight-C-1-a0": {
+   "slot": "extra-tight-C-1",
+   "reserved": 5.2,
+   "cost": 3.668168599999999,
+   "status": "done",
+   "started": "2026-10-09 02:20:40"
+  },
+  "extra-pct-B-1-a0": {
+   "slot": "extra-pct-B-1",
+   "reserved": 4.88,
+   "cost": 2.7402253999999995,
+   "status": "done",
+   "started": "2026-10-09 02:34:17"
   }
  },
  "exhausted": [],
@@ -55,7 +160,7 @@
   ]
  },
  "current": null,
- "selection": "smoke",
+ "selection": "main",
  "ceiling": 62.0,
  "claude_version": "2.1.289 (Claude Code)"
 }

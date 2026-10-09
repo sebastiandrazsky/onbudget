@@ -1,0 +1,47 @@
+{"ts": 1791498063.467891, "task": "boltons", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/boltons"}
+{"ts": 1791498063.542752, "task": "boltons", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/boltons"}
+{"ts": 1791498063.679096, "task": "boltons", "argv": ["python", "-m", "pytest", "tests", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/boltons"}
+{"ts": 1791498076.885779, "task": "boltons", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/boltons"}
+{"ts": 1791498076.9585721, "task": "boltons", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/boltons"}
+{"ts": 1791498077.094615, "task": "boltons", "argv": ["python", "-m", "pytest", "tests", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/boltons"}
+{"ts": 1791498090.9120681, "task": "boltons", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/boltons"}
+{"ts": 1791498090.98586, "task": "boltons", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/boltons"}
+{"ts": 1791498091.106924, "task": "boltons", "argv": ["python", "-m", "pytest", "tests", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/boltons"}
+{"ts": 1791498125.768128, "task": "markdown-it-py", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/markdown-it-py"}
+{"ts": 1791498125.853177, "task": "markdown-it-py", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/markdown-it-py"}
+{"ts": 1791498126.0183182, "task": "markdown-it-py", "argv": ["python", "-m", "pytest", "tests", "--ignore=tests/test_packaging", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/markdown-it-py"}
+{"ts": 1791498153.3268301, "task": "pluggy", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/pluggy"}
+{"ts": 1791498153.402977, "task": "pluggy", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/pluggy"}
+{"ts": 1791498153.5124962, "task": "pluggy", "argv": ["python", "-m", "pytest", "testing", "--ignore=testing/benchmark.py", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/pluggy"}
+{"ts": 1791498162.452544, "task": "pluggy", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/pluggy"}
+{"ts": 1791498162.526195, "task": "pluggy", "argv": ["python", "-m", "pytest", "testing", "--ignore=testing/benchmark.py", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/pluggy"}
+{"ts": 1791498191.720136, "task": "pydantic-settings", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/pydantic-settings"}
+{"ts": 1791498191.813791, "task": "pydantic-settings", "argv": ["python", "-m", "pytest", "tests", "--ignore=tests/test_docs.py", "-q", "-x"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/pydantic-settings"}
+{"ts": 1791498218.396058, "task": "pydantic-settings", "argv": ["python", "/tmp/ps_check.py"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/pydantic-settings"}
+{"ts": 1791498218.469835, "task": "pydantic-settings", "argv": ["python", "-m", "pytest", "tests", "--ignore=tests/test_docs.py", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/pydantic-settings"}
+{"ts": 1791498235.8804631, "task": "pydantic-settings", "argv": ["python", "../_ps_check.py"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/pydantic-settings"}
+{"ts": 1791498236.180605, "task": "pydantic-settings", "argv": ["python", "-m", "pytest", "tests", "--ignore=tests/test_docs.py", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/pydantic-settings"}
+{"ts": 1791498248.177043, "task": "pydantic-settings", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/pydantic-settings"}
+{"ts": 1791498248.257549, "task": "pydantic-settings", "argv": ["python", "../_ps_check.py"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/pydantic-settings"}
+{"ts": 1791498336.1036422, "task": "falcon", "argv": ["python", "../_falcon_patch.py"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/falcon"}
+{"ts": 1791498346.732888, "task": "falcon", "argv": ["python", "../_falcon_check.py"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/falcon"}
+{"ts": 1791498347.052143, "task": "falcon", "argv": ["python", "-m", "pytest", "tests", "--ignore=tests/asgi/test_asgi_servers.py", "--ignore=tests/test_wsgi_servers.py", "-q", "-x", "-n", "4"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/falcon"}
+{"ts": 1791498350.561685, "task": "falcon", "argv": ["python", "-m", "pytest", "tests", "--ignore=tests/asgi/test_asgi_servers.py", "--ignore=tests/test_wsgi_servers.py", "-q", "-x"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/falcon"}
+{"ts": 1791498439.119819, "task": "werkzeug", "argv": ["python", "../_wz_patch.py"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/werkzeug"}
+{"ts": 1791498446.613035, "task": "werkzeug", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/werkzeug"}
+{"ts": 1791498454.57476, "task": "werkzeug", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/werkzeug"}
+{"ts": 1791498454.657516, "task": "werkzeug", "argv": ["python", "-m", "pytest", "tests", "-m", "not dev_server", "--ignore=tests/middleware/test_http_proxy.py", "--ignore=tests/test_serving.py", "--ignore=tests/test_reloader.py", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/werkzeug"}
+{"ts": 1791498467.2692952, "task": "werkzeug", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/werkzeug"}
+{"ts": 1791498467.34331, "task": "werkzeug", "argv": ["python", "-m", "pytest", "tests", "-m", "not dev_server", "--ignore=tests/middleware/test_http_proxy.py", "--ignore=tests/test_serving.py", "--ignore=tests/test_reloader.py", "-q", "--tb=line"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/werkzeug"}
+{"ts": 1791498485.837117, "task": "werkzeug", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/werkzeug"}
+{"ts": 1791498485.9110951, "task": "werkzeug", "argv": ["python", "-m", "pytest", "tests", "-m", "not dev_server", "--ignore=tests/middleware/test_http_proxy.py", "--ignore=tests/test_serving.py", "--ignore=tests/test_reloader.py", "-q", "--tb=line"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/werkzeug"}
+{"ts": 1791498491.836961, "task": "werkzeug", "argv": ["python", "-W", "error", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/werkzeug"}
+{"ts": 1791498589.477359, "task": "werkzeug-cond", "argv": ["python", "../_wc_patch.py"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/werkzeug-cond"}
+{"ts": 1791498589.5564659, "task": "werkzeug-cond", "argv": ["python", "-m", "pytest", "tests", "-m", "not dev_server", "--ignore=tests/middleware/test_http_proxy.py", "--ignore=tests/test_serving.py", "--ignore=tests/test_reloader.py", "-q", "--tb=no"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/werkzeug-cond"}
+{"ts": 1791498609.521558, "task": "werkzeug-cond", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/werkzeug-cond"}
+{"ts": 1791498609.602197, "task": "werkzeug-cond", "argv": ["python", "-m", "pytest", "tests", "-m", "not dev_server", "--ignore=tests/middleware/test_http_proxy.py", "--ignore=tests/test_serving.py", "--ignore=tests/test_reloader.py", "-q", "--tb=short"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/werkzeug-cond"}
+{"ts": 1791498637.448291, "task": "werkzeug-cond", "argv": ["python", "-W", "error", "../_wc_check.py"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/werkzeug-cond"}
+{"ts": 1791498639.9381828, "task": "werkzeug-cond", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/werkzeug-cond"}
+{"ts": 1791498640.013375, "task": "werkzeug-cond", "argv": ["python", "-W", "error", "../_wc_check.py"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/werkzeug-cond"}
+{"ts": 1791498648.629612, "task": "werkzeug-cond", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/werkzeug-cond"}
+{"ts": 1791498648.716438, "task": "werkzeug-cond", "argv": ["python", "-m", "pytest", "tests", "-m", "not dev_server", "--ignore=tests/middleware/test_http_proxy.py", "--ignore=tests/test_serving.py", "--ignore=tests/test_reloader.py", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-C-2-a0/ws/werkzeug-cond"}

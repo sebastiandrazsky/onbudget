@@ -1,0 +1,27 @@
+{
+ "phase": "main-tight",
+ "mode": "session",
+ "arm": "A",
+ "level": "TIGHT",
+ "usd": 4.2,
+ "raw": "$4.20",
+ "run_id": "tight-A-1-a0",
+ "slot": "tight-A-1",
+ "attempt": 0,
+ "names": [
+  "boltons",
+  "falcon",
+  "markdown-it-py",
+  "pluggy",
+  "pydantic-settings",
+  "werkzeug",
+  "werkzeug-cond"
+ ],
+ "plugins": [
+  "capmod"
+ ],
+ "cwd": "/Users/user/Documents/.onbudget-eval-work/tight-A-1-a0/ws",
+ "started": "2026-10-09T00:16:05",
+ "wall_s": 165.3,
+ "killed": null
+}

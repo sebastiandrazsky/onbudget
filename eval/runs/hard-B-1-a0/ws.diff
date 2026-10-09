@@ -1,0 +1,1012 @@
+--- a/boltons/boltons/iterutils.py
++++ b/boltons/boltons/iterutils.py
+@@ -526,10 +526,12 @@
+     else:
+         # swap when all args are used
+         stop, start = start * 1.0, stop * 1.0
++    count = int(math.ceil((stop - start) / step))
+     cur = start
+-    while cur < stop:
++    for i in range(count):
++        if i:
++            cur = cur + step
+         yield cur
+-        cur += step
+ 
+ 
+ def frange(stop, start=None, step=1.0):
+--- a/boltons/boltons/jsonutils.py
++++ b/boltons/boltons/jsonutils.py
+@@ -156,7 +156,7 @@
+             raise ValueError("'rel_seek' expected a float between"
+                              " -1.0 and 1.0, not %r" % rel_seek)
+         elif rel_seek < 0:
+-            rel_seek = 1.0 - rel_seek
++            rel_seek = 1.0 + rel_seek
+         self._rel_seek = rel_seek
+         self._blocksize = 4096
+         if rel_seek is not None:
+@@ -180,11 +180,12 @@
+         cur_pos = fo.tell()
+         while '\n' not in cur:
+             cur = fo.read(bsize)
++            if not cur:
++                # no newline before the end of the file, nothing left to read
++                fo.seek(0, os.SEEK_END)
++                return
+             total_read += bsize
+-        try:
+-            newline_offset = cur.index('\n') + total_read - bsize
+-        except ValueError:
+-            raise  # TODO: seek to end?
++        newline_offset = cur.index('\n') + total_read - bsize
+         fo.seek(cur_pos + newline_offset)
+ 
+     def _init_rel_seek(self):
+--- a/boltons/boltons/strutils.py
++++ b/boltons/boltons/strutils.py
+@@ -1230,6 +1230,8 @@
+         Given an input string, run all substitutions given in the
+         constructor.
+         """
++        if not self.group_map:
++            return text
+         return self.combined_pattern.sub(self._get_value, text)
+ 
+ 
+--- a/boltons/boltons/tableutils.py
++++ b/boltons/boltons/tableutils.py
+@@ -290,7 +290,7 @@
+         if self.headers:
+             self._width = len(self.headers)
+             return
+-        self._width = max([len(d) for d in self._data])
++        self._width = max([len(d) for d in self._data] or [0])
+ 
+     def _fill(self):
+         width, filler = self._width, [None]
+@@ -565,14 +565,23 @@
+         """
+         lines = []
+         widths = []
+-        headers = list(self.headers)
++        headers = []
++        if with_headers and self.headers:
++            headers.extend(self.headers)
++        with_headers = bool(headers)
+         text_data = [[to_text(cell, maxlen=maxlen) for cell in row]
+                      for row in self._data]
+-        for idx in range(self._width):
+-            cur_widths = [len(row[idx]) for row in text_data]
++        width = max([self._width, len(headers)]
++                    + [len(row) for row in text_data])
++        if with_headers:
++            headers.extend([None] * (width - len(headers)))
++        headers = [to_text(h, maxlen=maxlen) for h in headers]
++        for idx in range(width):
++            cur_widths = [len(row[idx]) for row in text_data
++                          if idx < len(row)]
+             if with_headers:
+-                cur_widths.append(len(to_text(headers[idx], maxlen=maxlen)))
+-            widths.append(max(cur_widths))
++                cur_widths.append(len(headers[idx]))
++            widths.append(max(cur_widths or [0]))
+         if with_headers:
+             lines.append(' | '.join([h.center(widths[i])
+                                      for i, h in enumerate(headers)]))
+--- a/boltons/boltons/timeutils.py
++++ b/boltons/boltons/timeutils.py
+@@ -117,7 +117,18 @@
+     .. _dateutil: https://pypi.python.org/pypi/python-dateutil
+ 
+     """
+-    dt_args = [int(p) for p in _NONDIGIT_RE.split(iso_str)]
++    main, dot, frac = iso_str.partition('.')
++    dt_args = [int(p) for p in _NONDIGIT_RE.split(main)]
++    if dot:
++        # fractional seconds are a decimal fraction, truncated to
++        # microsecond precision
++        frac_digits = re.match(r'\d*', frac).group()
++        if len(frac_digits) != len(frac) or not frac_digits:
++            raise ValueError('invalid fractional seconds in ISO8601 string: %r'
++                             % iso_str)
++        while len(dt_args) < 6:
++            dt_args.append(0)
++        dt_args.append(int(frac_digits[:6].ljust(6, '0')))
+     return datetime(*dt_args)
+ 
+ 
+@@ -366,9 +377,39 @@
+     
+     m_step += y_step * 12
+ 
++    if not m_step and not d_step:
++        raise ValueError('step must be able to advance, not: %r' % (step,))
++
++    def advance(now):
++        if m_step:
++            m_y_step, cur_month = divmod((now.month - 1) + m_step, 12)
++            now = now.replace(year=now.year + m_y_step,
++                              month=(cur_month + 1))
++        return now + d_step
++
++    # the direction of the range is determined by the first step
++    if not m_step:
++        forward = d_step > timedelta(0)
++    elif not d_step:
++        forward = m_step > 0
++    else:
++        try:
++            first = advance(start)
++        except (ValueError, OverflowError):
++            forward = m_step > 0
++        else:
++            if first == start:
++                raise ValueError('step must be able to advance, not: %r'
++                                 % (step,))
++            forward = first > start
++
++    return _daterange_iter(start, stop, advance, forward, inclusive, step)
++
++
++def _daterange_iter(start, stop, advance, forward, inclusive, step):
+     if stop is None:
+         finished = lambda now, stop: False
+-    elif start <= stop:
++    elif forward:
+         finished = operator.gt if inclusive else operator.ge
+     else:
+         finished = operator.lt if inclusive else operator.le
+@@ -376,11 +417,10 @@
+ 
+     while not finished(now, stop):
+         yield now
+-        if m_step:
+-            m_y_step, cur_month = divmod((now.month - 1) + m_step, 12)
+-            now = now.replace(year=now.year + m_y_step,
+-                              month=(cur_month + 1))
+-        now = now + d_step
++        prev, now = now, advance(now)
++        if (now <= prev) if forward else (now >= prev):
++            raise ValueError('step must be able to advance, not: %r'
++                             % (step,))
+     return
+ 
+ 
+--- a/falcon/docs/_newsfragments/1942.newandimproved.rst
++++ b/falcon/docs/_newsfragments/1942.newandimproved.rst
+@@ -0,0 +1,6 @@
++Added :meth:`falcon.App.set_error_reporter` and
++:meth:`falcon.asgi.App.set_error_reporter`, which make it possible to register
++a callable that is notified of every exception raised while processing a
++request (including :class:`~falcon.HTTPError` and :class:`~falcon.HTTPStatus`
++instances), e.g., in order to log it or send it to an error tracker. The
++reporter is also told whether the exception is handled by an error handler.
+--- a/falcon/falcon/app.py
++++ b/falcon/falcon/app.py
+@@ -241,6 +241,7 @@
+     __slots__ = (
+         '_cors_enable',
+         '_error_handlers',
++        '_error_reporter',
+         '_independent_middleware',
+         '_middleware',
+         '_request_type',
+@@ -259,6 +260,7 @@
+ 
+     _cors_enable: bool
+     _error_handlers: dict[type[Exception], ErrorHandler[_ReqT, _RespT]]
++    _error_reporter: Callable[[Any, Exception, dict[str, Any], bool], None] | None
+     _independent_middleware: bool
+     _middleware: helpers.PreparedMiddlewareResult
+     _request_type: type[_ReqT]
+@@ -387,6 +389,7 @@
+         self._response_type = response_type or Response  # type: ignore[assignment]
+ 
+         self._error_handlers = {}
++        self._error_reporter = None
+         self._serialize_error = helpers.default_serialize_error
+ 
+         self.req_options = RequestOptions()
+@@ -506,7 +509,12 @@
+ 
+             req_succeeded = False
+ 
+-        resp_status: str = code_to_http_status(resp.status)
++        try:
++            resp_status: str = code_to_http_status(resp.status)
++        except Exception as ex:
++            self._report_unhandled(req, ex, params)
++            raise
++
+         default_media_type: str | None = self.resp_options.default_media_type
+ 
+         if req.method == 'HEAD' or resp_status in _BODILESS_STATUS_CODES:
+@@ -545,7 +553,11 @@
+             if length is not None:
+                 resp._headers['content-length'] = str(length)
+ 
+-        headers: list[tuple[str, str]] = resp._wsgi_headers(default_media_type)
++        try:
++            headers: list[tuple[str, str]] = resp._wsgi_headers(default_media_type)
++        except Exception as ex:
++            self._report_unhandled(req, ex, params)
++            raise
+ 
+         # Return the response per the WSGI spec.
+         start_response(resp_status, headers)
+@@ -1033,6 +1045,44 @@
+ 
+             self._error_handlers[exc] = handler
+ 
++    def set_error_reporter(
++        self, reporter: Callable[[Any, Exception, dict[str, Any], bool], None] | None
++    ) -> None:
++        """Set a callable that is notified of every exception raised by the app.
++
++        The reporter is invoked for every exception that is passed to the
++        app's error handling while processing a request, including instances
++        of :class:`~.HTTPError` and :class:`~.HTTPStatus`, regardless of
++        whether the exception was raised while routing the request, in
++        middleware, in a responder, or while rendering the response body.
++        This makes it possible to, e.g., log exceptions or send them to an
++        error tracker in one central place.
++
++        The reporter is called *before* the matching error handler (if any)
++        is invoked. Exceptions raised by an error handler or by the error
++        serializer are reported too, except when a handler simply re-raises
++        the very same exception object.
++
++        Only one reporter can be set; calling this method again replaces
++        the previously set reporter.
++
++        Note:
++            The reporter is always a plain synchronous callable, in both WSGI and ASGI apps.
++
++        Args:
++            reporter (callable): A function taking the form
++                ``func(req, ex, params, handled)``, where `req` is the
++                request, `ex` is the exception, `params` is the dict of
++                keyword arguments passed to the responder, and `handled` is
++                ``True`` if an error handler matches the exception type.
++                When `handled` is ``False``, the exception propagates to
++                the application server. Pass ``None`` to remove a
++                previously set reporter.
++
++        .. versionadded:: 4.3
++        """
++        self._error_reporter = reporter
++
+     def set_error_serializer(self, serializer: ErrorSerializer[_ReqT, _RespT]) -> None:
+         """Override the default serializer for instances of :class:`~.HTTPError`.
+ 
+@@ -1243,6 +1293,13 @@
+                 return handler
+         return None
+ 
++    def _report_unhandled(
++        self, req: _ReqT, ex: Exception, params: dict[str, Any]
++    ) -> None:
++        reporter = self._error_reporter
++        if reporter is not None:
++            reporter(req, ex, params, False)
++
+     def _handle_exception(
+         self, req: _ReqT, resp: _RespT, ex: Exception, params: dict[str, Any]
+     ) -> bool:
+@@ -1262,16 +1319,32 @@
+             exception, ``False`` otherwise.
+         """
+         err_handler = self._find_error_handler(ex)
++        reporter = self._error_reporter
++
++        if reporter is not None:
++            reporter(req, ex, params, err_handler is not None)
+ 
+         # NOTE(caselit): Reset body, data and media before calling the handler
+         resp.text = resp.data = resp.media = None
+         if err_handler is not None:
+             try:
+-                err_handler(req, resp, ex, params)
+-            except HTTPStatus as status:
+-                self._compose_status_response(req, resp, status)
+-            except HTTPError as error:
+-                self._compose_error_response(req, resp, error)
++                try:
++                    err_handler(req, resp, ex, params)
++                except HTTPStatus as status:
++                    if reporter is not None and status is not ex:
++                        reporter(req, status, params, True)
++                    self._compose_status_response(req, resp, status)
++                except HTTPError as error:
++                    if reporter is not None and error is not ex:
++                        reporter(req, error, params, True)
++                    self._compose_error_response(req, resp, error)
++            except Exception as unhandled:
++                # The error handler or the error serializer raised an
++                # exception that we can not handle; let it propagate to
++                # the app server.
++                if reporter is not None and unhandled is not ex:
++                    reporter(req, unhandled, params, False)
++                raise
+ 
+             return True
+ 
+--- a/falcon/falcon/asgi/app.py
++++ b/falcon/falcon/asgi/app.py
+@@ -652,7 +652,12 @@
+ 
+             req_succeeded = False
+ 
+-        resp_status: int = resp.status_code
++        try:
++            resp_status: int = resp.status_code
++        except Exception as ex:
++            self._report_unhandled(req, ex, params)
++            raise
++
+         default_media_type: str | None = self.resp_options.default_media_type
+ 
+         if req.method == 'HEAD' or resp_status in _BODILESS_STATUS_CODES:
+@@ -691,7 +696,7 @@
+                     #   EventType.HTTP_RESPONSE_START in this critical code path.
+                     'type': 'http.response.start',
+                     'status': resp_status,
+-                    'headers': resp._asgi_headers(default_media_type),
++                    'headers': self._asgi_headers(req, resp, params, default_media_type),
+                 }
+             )
+ 
+@@ -730,7 +735,7 @@
+                 {
+                     'type': EventType.HTTP_RESPONSE_START,
+                     'status': resp_status,
+-                    'headers': resp._asgi_headers('text/event-stream'),
++                    'headers': self._asgi_headers(req, resp, params, 'text/event-stream'),
+                 }
+             )
+ 
+@@ -791,7 +796,7 @@
+                     #   EventType.HTTP_RESPONSE_START in this critical code path.
+                     'type': 'http.response.start',
+                     'status': resp_status,
+-                    'headers': resp._asgi_headers(default_media_type),
++                    'headers': self._asgi_headers(req, resp, params, default_media_type),
+                 }
+             )
+ 
+@@ -820,7 +825,7 @@
+                 #   EventType.HTTP_RESPONSE_START in this critical code path.
+                 'type': 'http.response.start',
+                 'status': resp_status,
+-                'headers': resp._asgi_headers(default_media_type),
++                'headers': self._asgi_headers(req, resp, params, default_media_type),
+             }
+         )
+ 
+@@ -1102,6 +1107,44 @@
+     # Helper methods
+     # ------------------------------------------------------------------------
+ 
++    def set_error_reporter(
++        self, reporter: Callable[[Any, Exception, dict[str, Any], bool], None] | None
++    ) -> None:
++        """Set a callable that is notified of every exception raised by the app.
++
++        The reporter is invoked for every exception that is passed to the
++        app's error handling while processing a request, including instances
++        of :class:`~.HTTPError` and :class:`~.HTTPStatus`, regardless of
++        whether the exception was raised while routing the request, in
++        middleware, in a responder, or while rendering the response body.
++        This makes it possible to, e.g., log exceptions or send them to an
++        error tracker in one central place.
++
++        The reporter is called *before* the matching error handler (if any)
++        is invoked. Exceptions raised by an error handler or by the error
++        serializer are reported too, except when a handler simply re-raises
++        the very same exception object.
++
++        Only one reporter can be set; calling this method again replaces
++        the previously set reporter.
++
++        Note:
++            The reporter is always a plain synchronous callable, even though this is an ASGI app; it must not be a coroutine function.
++
++        Args:
++            reporter (callable): A function taking the form
++                ``func(req, ex, params, handled)``, where `req` is the
++                request, `ex` is the exception, `params` is the dict of
++                keyword arguments passed to the responder, and `handled` is
++                ``True`` if an error handler matches the exception type.
++                When `handled` is ``False``, the exception propagates to
++                the application server. Pass ``None`` to remove a
++                previously set reporter.
++
++        .. versionadded:: 4.3
++        """
++        super().set_error_reporter(reporter)
++
+     def _schedule_callbacks(self, resp: Response) -> None:
+         callbacks = resp._registered_callbacks
+         # PERF(vytas): resp._registered_callbacks is already checked directly
+@@ -1291,6 +1334,19 @@
+             asgi=True,
+         )
+ 
++    def _asgi_headers(
++        self,
++        req: _ReqT,
++        resp: _RespT,
++        params: dict[str, Any],
++        media_type: str | None,
++    ) -> Any:
++        try:
++            return resp._asgi_headers(media_type)
++        except Exception as ex:
++            self._report_unhandled(req, ex, params)
++            raise
++
+     async def _http_status_handler(  # type: ignore[override]
+         self,
+         req: _ReqT,
+@@ -1402,6 +1458,10 @@
+             exception, ``False`` otherwise.
+         """
+         err_handler = self._find_error_handler(ex)
++        reporter = self._error_reporter
++
++        if reporter is not None:
++            reporter(req, ex, params, err_handler is not None)
+ 
+         if resp:
+             # NOTE(caselit): Reset body, data and media before calling the handler
+@@ -1409,20 +1469,33 @@
+ 
+         if err_handler is not None:
+             try:
+-                kwargs = {}
+-
+-                # PERF(vytas): Using the LRU-cache backed misc._has_arg_name
+-                #   here as inspect.signature (and by proxy misc.get_argnames)
+-                #   can be very slow (on the order of magnitude of 10 µs).
+-                if ws is not None and _has_arg_name(err_handler, 'ws'):
+-                    kwargs['ws'] = ws
+-
+-                await err_handler(req, resp, ex, params, **kwargs)
+-
+-            except HTTPStatus as status:
+-                await self._http_status_handler(req, resp, status, params, ws=ws)
+-            except HTTPError as error:
+-                await self._http_error_handler(req, resp, error, params, ws=ws)
++                try:
++                    kwargs = {}
++
++                    # PERF(vytas): Using the LRU-cache backed
++                    #   misc._has_arg_name here as inspect.signature (and by
++                    #   proxy misc.get_argnames) can be very slow (on the
++                    #   order of magnitude of 10 µs).
++                    if ws is not None and _has_arg_name(err_handler, 'ws'):
++                        kwargs['ws'] = ws
++
++                    await err_handler(req, resp, ex, params, **kwargs)
++
++                except HTTPStatus as status:
++                    if reporter is not None and status is not ex:
++                        reporter(req, status, params, True)
++                    await self._http_status_handler(req, resp, status, params, ws=ws)
++                except HTTPError as error:
++                    if reporter is not None and error is not ex:
++                        reporter(req, error, params, True)
++                    await self._http_error_handler(req, resp, error, params, ws=ws)
++            except Exception as unhandled:
++                # The error handler or the error serializer raised an
++                # exception that we can not handle; let it propagate to
++                # the app server.
++                if reporter is not None and unhandled is not ex:
++                    reporter(req, unhandled, params, False)
++                raise
+ 
+             return True
+ 
+--- a/markdown-it-py/markdown_it/common/utils.py
++++ b/markdown-it-py/markdown_it/common/utils.py
+@@ -167,6 +167,24 @@
+ def isStrSpace(ch: str | None) -> bool:
+     """Check if character is a whitespace."""
+     return ch in ("\t", " ")
++
++
++# The characters removed by ``String.prototype.trim`` in JavaScript
++# (WhiteSpace + LineTerminator), minus U+FEFF.
++# Note this differs from Python's ``str.isspace``, which additionally
++# treats U+001C..U+001F and U+0085 as whitespace.
++MD_TRIM_CHARS = (
++    "\t\n\v\f\r \u00a0\u1680"
++    "\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a"
++    "\u2028\u2029\u202f\u205f\u3000"
++)
++
++MD_TRIM_RE = re.compile("[" + re.escape(MD_TRIM_CHARS) + "]+")
++
++
++def mdTrim(string: str) -> str:
++    """Strip leading/trailing whitespace, like JavaScript's ``String.prototype.trim``."""
++    return string.strip(MD_TRIM_CHARS)
+ 
+ 
+ MD_WHITESPACE = {
+@@ -254,7 +272,7 @@
+     """Helper to unify [reference labels]."""
+     # Trim and collapse whitespace
+     #
+-    string = re.sub(r"\s+", " ", string.strip())
++    string = MD_TRIM_RE.sub(" ", mdTrim(string))
+ 
+     # In node v10 'ẞ'.toLowerCase() === 'Ṿ', which is presumed to be a bug
+     # fixed in v12 (couldn't find any details).
+--- a/markdown-it-py/markdown_it/renderer.py
++++ b/markdown-it-py/markdown_it/renderer.py
+@@ -12,7 +12,7 @@
+ import inspect
+ from typing import Any, ClassVar, Protocol
+ 
+-from .common.utils import escapeHtml, unescapeAll
++from .common.utils import MD_TRIM_RE, escapeHtml, mdTrim, unescapeAll
+ from .token import Token
+ from .utils import EnvType, OptionsDict
+ 
+@@ -268,12 +268,12 @@
+         env: EnvType,
+     ) -> str:
+         token = tokens[idx]
+-        info = unescapeAll(token.info).strip() if token.info else ""
++        info = mdTrim(unescapeAll(token.info)) if token.info else ""
+         langName = ""
+         langAttrs = ""
+ 
+         if info:
+-            arr = info.split(maxsplit=1)
++            arr = MD_TRIM_RE.split(info, maxsplit=1)
+             langName = arr[0]
+             if len(arr) == 2:
+                 langAttrs = arr[1]
+--- a/markdown-it-py/markdown_it/rules_block/heading.py
++++ b/markdown-it-py/markdown_it/rules_block/heading.py
+@@ -4,7 +4,7 @@
+ 
+ import logging
+ 
+-from ..common.utils import isStrSpace
++from ..common.utils import isStrSpace, mdTrim
+ from .state_block import StateBlock
+ 
+ LOGGER = logging.getLogger(__name__)
+@@ -62,7 +62,7 @@
+     token.map = [startLine, state.line]
+ 
+     token = state.push("inline", "", 0)
+-    token.content = state.src[pos:maximum].strip()
++    token.content = mdTrim(state.src[pos:maximum])
+     token.map = [startLine, state.line]
+     token.children = []
+ 
+--- a/markdown-it-py/markdown_it/rules_block/lheading.py
++++ b/markdown-it-py/markdown_it/rules_block/lheading.py
+@@ -1,6 +1,7 @@
+ # lheading (---, ==)
+ import logging
+ 
++from ..common.utils import mdTrim
+ from .state_block import StateBlock
+ 
+ LOGGER = logging.getLogger(__name__)
+@@ -65,7 +66,9 @@
+         # Didn't find valid underline
+         return False
+ 
+-    content = state.getLines(startLine, nextLine, state.blkIndent, False).strip()
++    content = mdTrim(
++        state.getLines(startLine, nextLine, state.blkIndent, False)
++    )
+ 
+     state.line = nextLine + 1
+ 
+--- a/markdown-it-py/markdown_it/rules_block/paragraph.py
++++ b/markdown-it-py/markdown_it/rules_block/paragraph.py
+@@ -2,6 +2,7 @@
+ 
+ import logging
+ 
++from ..common.utils import mdTrim
+ from .state_block import StateBlock
+ 
+ LOGGER = logging.getLogger(__name__)
+@@ -47,7 +48,9 @@
+ 
+         nextLine += 1
+ 
+-    content = state.getLines(startLine, nextLine, state.blkIndent, False).strip()
++    content = mdTrim(
++        state.getLines(startLine, nextLine, state.blkIndent, False)
++    )
+ 
+     state.line = nextLine
+ 
+--- a/markdown-it-py/markdown_it/rules_block/table.py
++++ b/markdown-it-py/markdown_it/rules_block/table.py
+@@ -3,7 +3,7 @@
+ 
+ import re
+ 
+-from ..common.utils import charStrAt, isStrSpace
++from ..common.utils import charStrAt, isStrSpace, mdTrim
+ from .state_block import StateBlock
+ 
+ headerLineRe = re.compile(r"^:?-+:?$")
+@@ -108,7 +108,7 @@
+     columns = lineText.split("|")
+     aligns = []
+     for i in range(len(columns)):
+-        t = columns[i].strip()
++        t = mdTrim(columns[i])
+         if not t:
+             # allow empty columns before and after table, but not in between columns;
+             # e.g. allow ` |---| `, disallow ` ---||--- `
+@@ -126,7 +126,7 @@
+         else:
+             aligns.append("")
+ 
+-    lineText = getLine(state, startLine).strip()
++    lineText = mdTrim(getLine(state, startLine))
+     if "|" not in lineText:
+         return False
+     if state.is_code_block(startLine):
+@@ -171,7 +171,7 @@
+         # note in markdown-it this map was removed in v12.0.0 however, we keep it,
+         # since it is helpful to propagate to children tokens
+         token.map = [startLine, startLine + 1]
+-        token.content = columns[i].strip()
++        token.content = mdTrim(columns[i])
+         token.children = []
+ 
+         token = state.push("th_close", "th", -1)
+@@ -193,7 +193,7 @@
+ 
+         if terminate:
+             break
+-        lineText = getLine(state, nextLine).strip()
++        lineText = mdTrim(getLine(state, nextLine))
+         if not lineText:
+             break
+         if state.is_code_block(nextLine):
+@@ -227,7 +227,7 @@
+             # since it is helpful to propagate to children tokens
+             token.map = [nextLine, nextLine + 1]
+             try:
+-                token.content = columns[i].strip() if columns[i] else ""
++                token.content = mdTrim(columns[i]) if columns[i] else ""
+             except IndexError:
+                 token.content = ""
+             token.children = []
+--- a/pluggy/changelog/442.bugfix.rst
++++ b/pluggy/changelog/442.bugfix.rst
+@@ -0,0 +1,3 @@
++A value passed by a hook call (or a hookspec's default value) now takes precedence over a default value declared by a hookimpl for the same argument.
++Previously the hookimpl's own default was always used, even when the hook call passed an explicit value.
++The hookimpl's default is still used when neither the call nor the hookspec provides the argument.
+--- a/pluggy/docs/index.rst
++++ b/pluggy/docs/index.rst
+@@ -572,11 +572,8 @@
+ This allows for extending hook arguments (and thus semantics) without
+ breaking existing *hookimpls*.
+ 
+-Only arguments without default values are considered for this opt-in
+-matching. Arguments with defaults in a *hookimpl* are treated as optional
+-keyword arguments and are not passed by pluggy, even when the hook caller
+-provides a value with the same name. If a *hookimpl* needs a value from the
+-hook call, declare it without a default value.
++A *hookimpl* may also declare a default value for an argument, see
++:ref:`hookimpl_arg_default`.
+ 
+ In other words this is ok:
+ 
+@@ -640,6 +637,47 @@
+     # New caller; hookimpls will get new_arg="get this".
+     pm.hook.myhook(config=config, args=args, new_arg="get this")
+ 
++
++.. _hookimpl_arg_default:
++
++Hookimpl argument defaults
++^^^^^^^^^^^^^^^^^^^^^^^^^^
++A *hookimpl* can also declare a default value for an argument. The value
++the *hookimpl* receives is determined with the following precedence:
++
++1. the value passed by the hook call,
++2. the default value declared in the *hookspec*,
++3. the default value declared in the *hookimpl*.
++
++This allows a plugin to use an argument that was only added to the
++*hookspec* in a newer version of the host program, while still working with
++older versions where neither the call nor the *hookspec* provides it:
++
++.. code-block:: python
++
++    @hookspec
++    def myhook(config, args, new_arg=None):
++        pass
++
++
++    @hookimpl
++    def myhook(args, new_arg="fallback"):
++        print(new_arg)
++
++
++    # Prints "None" -- the hookspec default.
++    pm.hook.myhook(config=config, args=args)
++    # Prints "get this" -- the value passed by the call.
++    pm.hook.myhook(config=config, args=args, new_arg="get this")
++
++Against an older *hookspec* without ``new_arg``, the *hookimpl* receives
++its own default, ``"fallback"``. This applies to plain *hookimpls*, wrappers
++and old-style hook wrappers alike.
++
++.. versionchanged:: 1.7
++    A value passed by the hook call, or a *hookspec* default, now takes
++    precedence over a default declared by a *hookimpl*. Previously the
++    *hookimpl* default was always used.
+ 
+ .. _firstresult:
+ 
+--- a/pluggy/src/pluggy/_execution.py
++++ b/pluggy/src/pluggy/_execution.py
+@@ -25,15 +25,18 @@
+ 
+ 
+ def run_old_style_hookwrapper(
+-    hook_impl: HookImpl, hook_name: str, args: Sequence[object]
++    hook_impl: HookImpl,
++    hook_name: str,
++    args: Sequence[object],
++    kwargs: Mapping[str, object] | None = None,
+ ) -> Teardown:
+     """
+     backward compatibility wrapper to run a old style hookwrapper as a wrapper
+     """
+     if TYPE_CHECKING:
+-        teardown = cast(Teardown, hook_impl.function(*args))
++        teardown = cast(Teardown, hook_impl.function(*args, **(kwargs or {})))
+     else:
+-        teardown = hook_impl.function(*args)
++        teardown = hook_impl.function(*args, **(kwargs or {}))
+     try:
+         next(teardown)
+     except StopIteration:
+@@ -102,15 +105,30 @@
+                 raise HookCallError(
+                     f"hook call must provide argument {e.args[0]!r}"
+                 ) from e
++            # Arguments for which the hookimpl declares a default: a value
++            # from the hook call (or the hookspec default, already merged
++            # into caller_kwargs) takes precedence over the hookimpl default.
++            kwargs: dict[str, object] = {}
++            if hook_impl.kwargnames:
++                nargs = len(args)
++                for i, argname in enumerate(hook_impl.kwargnames):
++                    if argname not in caller_kwargs:
++                        pass
++                    elif len(args) != nargs + i:
++                        kwargs[argname] = caller_kwargs[argname]
++                    else:
++                        args.append(caller_kwargs[argname])
+ 
+             if hook_impl.hookwrapper:
+-                function_gen = run_old_style_hookwrapper(hook_impl, hook_name, args)
++                function_gen = run_old_style_hookwrapper(
++                    hook_impl, hook_name, args, kwargs
++                )
+ 
+                 next(function_gen)  # first yield
+                 teardowns.append(function_gen)
+ 
+             elif hook_impl.wrapper:
+-                res = hook_impl.function(*args)
++                res = hook_impl.function(*args, **kwargs)
+                 # If this cast is not valid, a type error is raised below,
+                 # which is the desired response.
+                 if TYPE_CHECKING:
+@@ -123,7 +141,7 @@
+                     _raise_wrapfail(function_gen, "did not yield")
+                 teardowns.append(function_gen)
+             else:
+-                res = hook_impl.function(*args)
++                res = hook_impl.function(*args, **kwargs)
+                 if res is not None:
+                     results.append(res)
+                     if firstresult:  # halt further impl calls
+--- a/pluggy/testing/test_invocations.py
++++ b/pluggy/testing/test_invocations.py
+@@ -448,13 +448,9 @@
+ 
+         assert pm.hook.hello(arg=1) == [(1, "impl-default")]
+ 
+-    def test_does_not_override_hookimpl_default(self, pm: PluginManager) -> None:
+-        """If an impl provides its own default, it takes precedence over both
+-        the spec default and call value.
+-
+-        NOTE: This is verifying existing behavior, but it's not necessarily what
+-        we want (#442).
+-        """
++    def test_overrides_hookimpl_default(self, pm: PluginManager) -> None:
++        """The call value and the spec default take precedence over a default
++        declared by the impl (#442)."""
+ 
+         class Api:
+             @hookspec
+@@ -469,8 +465,8 @@
+         pm.add_hookspecs(Api)
+         pm.register(Plugin())
+ 
+-        assert pm.hook.hello(arg=1) == ["impl-default"]
+-        assert pm.hook.hello(arg=1, new_arg="call") == ["impl-default"]
++        assert pm.hook.hello(arg=1) == ["spec-default"]
++        assert pm.hook.hello(arg=1, new_arg="call") == ["call"]
+ 
+     def test_new_call_argument_is_not_delivered_by_old_spec(
+         self, pm: PluginManager
+--- a/pydantic-settings/docs/index.md
++++ b/pydantic-settings/docs/index.md
+@@ -1045,6 +1045,12 @@
+   * Argparse style `--field 1 --field 2`
+   * Lazy style `--field=1,2`
+ 
++Any subclass of `collections.abc.Sequence` or `collections.abc.Set` is treated as a list, not only `list` and
++`set`. This includes `tuple`, `frozenset`, `typing.Tuple`, `MutableSequence` and `deque`, whether parameterized
++(`tuple[str, ...]`), bare (`tuple`) or optional (`tuple[str, ...] | None`). The parsed value has the field's own
++type, e.g. `--field a --field b` gives `('a', 'b')` for a `tuple[str, ...]` field. `str`, `bytes` and `bytearray`
++are sequences too, but always take a single value.
++
+ ```py
+ import sys
+ 
+@@ -1074,6 +1080,9 @@
+ 
+   * JSON style `--field='{"k1": 1, "k2": 2}'`
+   * Environment variable style `--field k1=1 --field k2=2`
++
++Any subclass of `collections.abc.Mapping` is treated as a dictionary, not only `dict`. This includes
++`MutableMapping` and `OrderedDict`, parameterized, bare or optional.
+ 
+ These can be used in conjunction with list forms as well, e.g:
+ 
+@@ -1173,6 +1182,10 @@
+ Repeating the option **replaces** the previous values (`--param a b --param c` becomes
+ `['c']`), which is the opposite of `action=append`. `nargs='*'` is greedy: it consumes
+ values until the next option flag, so a following subcommand name can be swallowed.
++
++`CliVariadicArg` requires a `Sequence`, `Set` or `Mapping` type (other than `str`, `bytes` and `bytearray`), such
++as `list[str]`, `tuple[str, ...]`, `frozenset[str]` or `OrderedDict[str, str]`. It can be combined with
++`CliPositionalArg`, e.g. `CliPositionalArg[CliVariadicArg[tuple[str, ...]]]`.
+ 
+ `CliVariadicArg` is ignored on `AliasPath` fields; those still use `action=append`.
+ 
+--- a/pydantic-settings/pydantic_settings/sources/providers/cli.py
++++ b/pydantic-settings/pydantic_settings/sources/providers/cli.py
+@@ -63,10 +63,12 @@
+ )
+ from ..utils import (
+     InitState,
++    _annotation_contains_collection,
+     _annotation_contains_types,
+     _annotation_enum_val_to_name,
+     _get_alias_names,
+     _get_model_fields,
++    _is_collection_type,
+     _is_function,
+     _strip_annotated,
+     parse_env_vars,
+@@ -277,9 +279,7 @@
+ 
+     @cached_property
+     def is_append_action(self) -> bool:
+-        return not self.subcommand_dest and _annotation_contains_types(
+-            self.field_info.annotation, (list, set, dict, Sequence, Mapping), is_strip_annotated=True
+-        )
++        return not self.subcommand_dest and _annotation_contains_collection(self.field_info.annotation)
+ 
+     @cached_property
+     def is_parser_submodel(self) -> bool:
+@@ -701,7 +701,7 @@
+             or not any(
+                 type_
+                 for type_ in get_args(merge_type)
+-                if type_ is not type(None) and get_origin(type_) not in (dict, Mapping)
++                if type_ is not type(None) and not _is_collection_type(type_, (Mapping,))
+             )
+         ):
+             inferred_type = merge_type
+@@ -880,9 +880,7 @@
+                 alias_names, *_ = _get_alias_names(field_name, field_info)
+                 if len(alias_names) > 1:
+                     raise SettingsError(f'positional argument {model.__name__}.{field_name} has multiple aliases')
+-                is_append_action = _annotation_contains_types(
+-                    field_info.annotation, (list, set, dict, Sequence, Mapping), is_strip_annotated=True
+-                )
++                is_append_action = _annotation_contains_collection(field_info.annotation)
+                 if not is_append_action:
+                     positional_args.append((field_name, field_info))
+                 else:
+@@ -1209,9 +1207,7 @@
+ 
+     def _convert_append_action(self, kwargs: dict[str, Any], field_info: FieldInfo, is_append_action: bool) -> None:
+         if _CliVariadicArg in field_info.metadata and not is_append_action:
+-            raise SettingsError(
+-                f'CliVariadicArg requires a list, set, dict, Sequence, or Mapping type for {kwargs["dest"]}'
+-            )
++            raise SettingsError(f'CliVariadicArg requires a Sequence, Set, or Mapping type for {kwargs["dest"]}')
+         if is_append_action:
+             if _CliVariadicArg in field_info.metadata:
+                 # A required variadic option must consume at least one value, otherwise a bare flag would
+@@ -1219,7 +1215,7 @@
+                 kwargs['nargs'] = '+' if kwargs.get('required') else '*'
+             else:
+                 kwargs['action'] = 'append'
+-            if _annotation_contains_types(field_info.annotation, (dict, Mapping), is_strip_annotated=True):
++            if _annotation_contains_collection(field_info.annotation, (Mapping,)):
+                 self._cli_dict_args[kwargs['dest']] = field_info.annotation
+ 
+     def _convert_bool_flag(self, kwargs: dict[str, Any], field_info: FieldInfo, model_default: Any) -> None:
+--- a/pydantic-settings/pydantic_settings/sources/utils.py
++++ b/pydantic-settings/pydantic_settings/sources/utils.py
+@@ -223,6 +223,30 @@
+             if any(isinstance(m, Strict) for m in meta):
+                 return True
+     return False
++
++
++def _is_collection_type(type_: Any, kinds: tuple[type, ...] = (Sequence, AbstractSet, Mapping)) -> bool:
++    """Check if a type (bare or parameterized) is a subclass of one of the collection ABCs in `kinds`.
++
++    `str`, `bytes` and `bytearray` are sequences too, but are never considered collections.
++    """
++    origin = get_origin(type_) or type_
++    try:
++        return (
++            isinstance(origin, type) and not issubclass(origin, (str, bytes, bytearray)) and issubclass(origin, kinds)
++        )
++    except TypeError:
++        return False
++
++
++def _annotation_contains_collection(
++    annotation: Any, kinds: tuple[type, ...] = (Sequence, AbstractSet, Mapping)
++) -> bool:
++    """Check if a type annotation is, or contains, a collection type (see `_is_collection_type`)."""
++    annotation = _strip_annotated(annotation)
++    if _is_collection_type(annotation, kinds):
++        return True
++    return any(_annotation_contains_collection(type_, kinds) for type_ in get_args(annotation))
+ 
+ 
+ def _annotation_contains_types(
+@@ -384,7 +408,9 @@
+ 
+ __all__ = [
+     'InitState',
++    '_annotation_contains_collection',
+     '_annotation_contains_types',
++    '_is_collection_type',
+     '_annotation_enum_name_to_val',
+     '_annotation_enum_val_to_name',
+     '_annotation_is_complex',
+--- a/pydantic-settings/tests/test_source_cli.py
++++ b/pydantic-settings/tests/test_source_cli.py
+@@ -2019,7 +2019,7 @@
+ 
+ 
+ def test_cli_variadic_non_collection_raises():
+-    with pytest.raises(SettingsError, match='CliVariadicArg requires a list, set, dict, Sequence, or Mapping type'):
++    with pytest.raises(SettingsError, match='CliVariadicArg requires a Sequence, Set, or Mapping type'):
+ 
+         class Settings(BaseSettings, cli_parse_args=True):
+             param: CliVariadicArg[str]

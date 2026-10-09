@@ -4,7 +4,7 @@
 import glob
 import lib
 
-ARMS = (('A', 'plain'), ('B', 'prompt-only'), ('C', 'onbudget'))
+ARMS = (('A', 'plain'), ('A0', 'plain, simple cap'), ('B', 'prompt-only'), ('C', 'onbudget'))
 LEVELS = ('TIGHT', 'HARD', 'PCT', 'SMOKE')
 ENDED = ('self', 'stopped', 'killed', 'error')
 

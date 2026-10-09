@@ -1,0 +1,40 @@
+Six of the seven tasks are finished and pass their offline test commands; `werkzeug-cond` is only partly done because the budget ran out.
+
+| Task | State | Offline test command result |
+|---|---|---|
+| boltons | all six fixes in | 446 passed |
+| falcon | `set_error_reporter` on both app classes, news fragment, docstrings | 4162 passed, 170 skipped |
+| markdown-it-py | `MD_TRIM_CHARS`, `MD_TRIM_RE`, `mdTrim` added and used at all listed call sites | 1016 passed |
+| pluggy | call value → hookspec default → hookimpl default, for plain impls and both wrapper kinds; docs and changelog fragment | 199 passed |
+| pydantic-settings | subclass-based collection detection, new error text, docs | 655 passed, 68 skipped |
+| werkzeug | `ETag`, `ETagSet` rename, `Response.etag`, deprecations, docs, `CHANGES.rst` | 988 passed |
+| werkzeug-cond | only `apply_conditions` and `apply_range` added | 1001 passed |
+
+Besides the suites, I ran behaviour checks against the examples in each task statement for boltons, markdown-it-py, pluggy, pydantic-settings and werkzeug. For falcon I added `tests/test_error_reporter.py`, which covers WSGI, ASGI and WebSocket reporting.
+
+**Unfinished in `werkzeug-cond` (requirements 4–8):**
+- `make_conditional`, `is_resource_modified` and `is_byte_range_valid` are not deprecated.
+- `send_file` is not refactored.
+- `SharedDataMiddleware` does not go through `send_file`, and its `cache` and `fallback_mimetype` parameters are not deprecated.
+- `CHANGES.rst` and `docs/quickstart.rst` are not updated.
+- No tests were added or moved; the two new methods were only checked by a throwaway script covering the precondition and range cases in requirements 1–3.
+
+**Existing tests I changed because the new requirements contradict them:**
+- pluggy: `test_does_not_override_hookimpl_default` asserted the old precedence; it is now `test_overrides_hookimpl_default`.
+- pydantic-settings: one test matched the old `CliVariadicArg` error text.
+- werkzeug: tests using `get_etag`, `quote_etag` and `ETags` now use the new API.
+
+**Changed but not verified:**
+- The documentation edits in falcon, pluggy, pydantic-settings and werkzeug were not built. pydantic-settings' `tests/test_docs.py` is excluded by the task's command, and I did not run it.
+- boltons: `daterange` now validates its arguments when called rather than on first iteration. Exercised by the suite and my checks, but it is a behaviour change beyond the listed cases.
+- pluggy: the `versionchanged` note says 1.7, which is my guess at the next release.
+
+boltons: COMPLETE
+falcon: COMPLETE
+markdown-it-py: COMPLETE
+pluggy: COMPLETE
+pydantic-settings: COMPLETE
+werkzeug: COMPLETE
+werkzeug-cond: INCOMPLETE
+
+STATUS: INCOMPLETE
