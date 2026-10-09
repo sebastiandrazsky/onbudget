@@ -1,0 +1,3 @@
+{"ts": 1791509380.670016, "task": "falcon", "argv": ["python", "-c", "import falcon, falcon.app, falcon.asgi.app as a; print(falcon.__version__, falcon.app.__file__, a.__file__)"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-A0-2-a0/ws/falcon"}
+{"ts": 1791509431.225746, "task": "boltons", "argv": ["python", "-c", "\nfrom boltons.tableutils import Table\nfor a in ([[]], [[],[1]], [[None,'a'],[1,2]], [['a'],[1,2,3]], []):\n    t=Table(a); print(a, t.headers, t._data, t._width)\n"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-A0-2-a0/ws/boltons"}
+{"ts": 1791509473.780679, "task": "markdown-it-py", "argv": ["python", "/tmp/mdit_edit.py"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-A0-2-a0/ws/markdown-it-py"}

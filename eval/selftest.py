@@ -239,9 +239,9 @@ def drive(state, selection, runner, t0=1.8e9, version=lambda: 'selftest'):
 def t_queue():
     os.environ.pop('ONBUDGET_EVAL_CEILING', None); state = fresh_queue('plan'); plan = Q.plan(); ids = [s['id'] for s in Q.slots()]
     phases = [s['phase'] for s in Q.slots()]
-    show('queue: plan lists 18 slots, phases in order, seeded shuffle inside a phase, worst cases summed', len(ids) == len(set(ids)) == 18 and plan == Q.plan()
-         and phases == sorted(phases, key=Q.PHASES.index) and ids[3:9] != sorted(ids[3:9]) and ids[-2:] == ['extra-tight-C-1', 'extra-pct-B-1']
-         and 'at their caps $53.00, at their worst cases $71.00' in plan and all(i in plan for i in ids), 'order: ' + ' '.join(ids))
+    show('queue: plan lists 24 slots, phases in order, seeded shuffle inside a phase, worst cases summed', len(ids) == len(set(ids)) == 24 and plan == Q.plan()
+         and phases == sorted(phases, key=Q.PHASES.index) and ids[3:9] != sorted(ids[3:9]) and ids[16:18] == ['extra-tight-C-1', 'extra-pct-B-1'] and len([i for i in ids if '-A0-' in i]) == 4 and set(ids[-2:]) == {'hard-B-3', 'hard-C-3'}
+         and 'at their caps $71.28, at their worst cases $95.28' in plan and all(i in plan for i in ids), 'order: ' + ' '.join(ids))
     print(plan)
 
     def refused(value):
@@ -266,7 +266,7 @@ def t_queue():
     state = fresh_queue('ceiling'); runner, calls = fake_runner(); (kind, why), _ = drive(state, 'all', runner)
     total = Q.spend(state, Q.scores()); left = [sid for sid in ids if Q.slot_state(sid, Q.scores()) == 'pending']
     show('queue: with every run near its worst case the queue stops cleanly under the ceiling, extras not started', kind == 'stopped' and 'no pending slot fits' in why and len(calls) == 16
-         and abs(total - 60.12) < 1e-6 and total <= 62 and left == ['extra-tight-C-1', 'extra-pct-B-1'] and os.path.exists(f'{Q.BASE}/results.csv') and os.path.exists(f'{Q.BASE}/report.txt'),
+         and abs(total - 60.12) < 1e-6 and total <= 62 and left[:2] == ['extra-tight-C-1', 'extra-pct-B-1'] and len(left) == 8 and os.path.exists(f'{Q.BASE}/results.csv') and os.path.exists(f'{Q.BASE}/report.txt'),
          f'{len(calls)} runs, spend ${total:.2f}, pending {left}')
 
     state = fresh_queue('skip'); runner, calls = fake_runner(cost=lambda s: 0.10); drive(state, 'smoke', runner)

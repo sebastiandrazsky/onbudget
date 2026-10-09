@@ -38,3 +38,17 @@
 2026-10-09 02:34:17 start extra-pct-B-1-a0 (extra, session, arm B, budget 4% 5h, cap $3.88)
 2026-10-09 02:44:21 done  extra-pct-B-1-a0 cost 2.7402253999999995 budget 3.88 ended=self complete=6/7 verified=6 void=False infra=False 5h=43 7d=12 spend=$40.04
 2026-10-09 02:44:21 DONE: every selected slot has a usable run (spend $40.04)
+2026-10-09 02:50:18 queue start/resume pid 37087 phases added spend $40.04 of $62.00
+2026-10-09 02:50:19 start hard-A0-1-a0 (simple-cap, session, arm A0, budget $2.47, cap $2.47)
+2026-10-09 02:57:23 done  hard-A0-1-a0 cost 3.140212 budget 2.47 ended=stopped complete=0/7 verified=1 void=False infra=False 5h=49 7d=13 spend=$43.18
+2026-10-09 02:57:23 start tight-A0-2-a0 (simple-cap, session, arm A0, budget $4.20, cap $4.20)
+2026-10-09 03:09:42 done  tight-A0-2-a0 cost 4.251687199999999 budget 4.2 ended=stopped complete=6/7 verified=6 void=False infra=False 5h=54 7d=14 spend=$47.43
+2026-10-09 03:09:43 start tight-A0-1-a0 (simple-cap, session, arm A0, budget $4.20, cap $4.20)
+2026-10-09 03:29:08 done  tight-A0-1-a0 cost 4.2536483999999986 budget 4.2 ended=stopped complete=5/7 verified=5 void=False infra=False 5h=58 7d=14 spend=$51.69
+2026-10-09 03:29:08 start hard-A0-2-a0 (simple-cap, session, arm A0, budget $2.47, cap $2.47)
+2026-10-09 03:34:45 done  hard-A0-2-a0 cost 3.5652178 budget 2.47 ended=stopped complete=1/7 verified=0 void=False infra=False 5h=62 7d=14 spend=$55.25
+2026-10-09 03:34:45 start hard-C-3-a0 (hard-extra, session, arm C, budget $2.47, cap $2.47)
+2026-10-09 03:43:19 done  hard-C-3-a0 cost 2.1573892 budget 2.47 ended=self complete=6/7 verified=5 void=False infra=False 5h=65 7d=14 spend=$57.41
+2026-10-09 03:43:19 start hard-B-3-a0 (hard-extra, session, arm B, budget $2.47, cap $2.47)
+2026-10-09 03:52:00 done  hard-B-3-a0 cost 2.0798638 budget 2.47 ended=self complete=5/7 verified=4 void=False infra=False 5h=67 7d=15 spend=$59.49
+2026-10-09 03:52:00 DONE: every selected slot has a usable run (spend $59.49)

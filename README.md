@@ -14,15 +14,33 @@ A budget is in dollars of API-equivalent usage (what `/cost` counts), or a share
 
 onbudget is a free, open-source Claude Code plugin. It makes no network calls, runs no commands, and has no dependencies or build step.
 
-<!-- COMPARISON:START -->
-## Measured against plain Claude Code
+## Measured against plain Claude Code and a budget in the prompt
 
-The evaluation has not finished. See `REPORT.md` for its status.
-<!-- COMPARISON:END -->
+Seven real bug-fix tasks in Python libraries, given in one prompt to one headless session, scored by upstream tests the model never saw. Claude Opus 5.5 at medium effort in every arm. Each figure is one run: tasks complete out of 7.
+
+| Budget | Plain Claude Code, simple cap | Budget stated in the prompt | onbudget |
+| --- | --- | --- | --- |
+| $4.20 | 5, 6 | 5, 6 | 7, 7, 6 |
+| $2.47 | 0, 1 | 5, 5, 5 | 6, 5, 6 |
+| 4% of the 5-hour window | not run | 6 | 6 |
+| Runs that stayed within budget | 0 of 4 | 6 of 6 | 7 of 7 |
+| Runs that ended by themselves with a report | 0 of 4 | 5 of 6 | 6 of 7 |
+| Wrong completion claims | none made | 0 of 35 | 1 of 42 |
+
+What that says, and does not:
+
+- Plain Claude Code under a hard cap is cut off mid-work. At the smaller budget it had spread the tasks over parallel subagents and finished almost nothing.
+- One sentence in the prompt stating the budget closes most of that gap. Against it, onbudget finished about one more task at $4.20 and did about the same at $2.47 and on the percentage budget. With two or three runs per cell this is an indication, not a proven effect.
+- A model that is told a budget and cannot see its spend plays safe: it stopped at 46% and 64% of the $4.20 budget with tasks unfinished. Shown the meter, it used 73 to 87% of the budget and finished more. It spent more per finished task ($0.52 against $0.42).
+- onbudget never overran. In one run of seven the plugin had to stop the session before the model reported; the working tree was usable and the stop said so.
+- One completion claim in 42 was wrong: a task reported complete that failed 1 of 48 hidden tests.
+
+The full tables, the costs, a second plain baseline, the method and its limits are in `REPORT.md`. The raw results are in `eval/`.
+
 
 ## Install
 
-onbudget uses Claude Code's function-hooks plugin API, which is early access. It was built and tested on Claude Code 2.1.289 and 2.1.293.
+onbudget uses Claude Code's function-hooks plugin API, which is early access. It was built and tested on Claude Code 2.1.289 and 2.1.293, on macOS.
 
 From a marketplace, once the repository is published (replace `<owner>` with the GitHub account that hosts it):
 
@@ -53,7 +71,7 @@ The task is sent with a short protocol appended, which you can read in the trans
 - Reasoning effort is capped at `medium` while the budget is set. Your setting comes back when the budget is removed.
 - A request is refused when the task's spend, plus a reserve for that request, would reach the budget. Claude does not get to answer; the plugin writes the notice itself and says so.
 
-Follow-up prompts draw on the same budget. `/onbudget off` removes it, and `/onbudget <budget> <instructions>` replaces it with a new one.
+Follow-up prompts draw on the same budget. Once the budget has stopped the session, a further prompt is turned away with the reason, and nothing is spent on it. `/onbudget off` removes the budget, and `/onbudget <budget> <instructions>` replaces it with a new one.
 
 ### A share of a usage window
 
@@ -111,17 +129,23 @@ The whole plugin is two files, `hooks/core.ts` (the logic) and `hooks/register.t
 
 The API offers no way to cap what one request costs, and a request can cost more than any before it. The usual cause is a long idle period: the first request afterwards re-reads the whole conversation at the cache-write price. When that happens the budget is overrun by that one request, and the plugin stops at the next one and reports the real figure. Requests already in flight when the budget stops are not cancelled. A compaction's own model request is sent by Claude Code and is not checked; its cost is counted.
 
+### Claude Code's own requests are counted, not stopped
+
+In an interactive session Claude Code makes a model request of its own when a turn ends, to suggest your next prompt. It does not pass through the hook the plugin refuses requests on. The plugin counts what it costs and shows it, so the spend can end a few cents past the budget: in a test, a $0.07 budget stopped at $0.069 finished at $0.115. Starting Claude Code with `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false` removes that request; with it the same test stayed at $0.068. Headless runs do not make it.
+
 ### The stop falls between requests
 
-The plugin can refuse a request; it cannot choose a good moment in the work. If the model does not wrap up in time, the stop can land in the middle of an edit. The meter exists to prevent that, and in the evaluation the model usually ended by itself, but nothing forces it to.
+The plugin can refuse a request; it cannot choose a good moment in the work. If the model does not wrap up in time, the stop can land in the middle of an edit. The meter exists to prevent that, and in the evaluation the model ended by itself in six runs of seven, but nothing forces it to.
+
+Parallel subagents make the stop come early. Each request in flight holds back a reserve, so with five running at once the plugin stops when five reserves no longer fit, and once it has stopped it stays stopped even if those requests turn out cheap. The protocol asks the model not to use subagents unless it is blocked.
 
 ### Completion claims are Claude's
 
-The plugin measures spend. It does not know whether the work is right. The protocol tells Claude to verify before claiming and to list what it did not verify, and the evaluation scores those claims against hidden tests (see `REPORT.md`), but a wrong claim is possible. When the plugin itself stops a session it makes no claim and says the work should be treated as unfinished.
+The plugin measures spend. It does not know whether the work is right. The protocol tells Claude to verify before claiming and to list what it did not verify. In the evaluation 41 of 42 such claims matched hidden tests and one did not. When the plugin itself stops a session it makes no claim and says the work should be treated as unfinished.
 
 ### Verification under a tight budget
 
-The protocol tells Claude not to skip checks to save money and to do fewer things instead. `REPORT.md` shows how often it ran the tests in each arm of the evaluation.
+The protocol tells Claude not to skip checks to save money and to do fewer things instead. In the evaluation it ran the tests at least as often under onbudget as with a budget stated in the prompt, and for 44 of 45 tasks it edited, its last test run came after its last code change. Those were tasks with test suites; nothing was measured on work without them.
 
 ### Percentage budgets rest on an estimate
 

@@ -1,0 +1,1815 @@
+--- a/boltons/boltons/iterutils.py
++++ b/boltons/boltons/iterutils.py
+@@ -526,8 +526,9 @@
+     else:
+         # swap when all args are used
+         stop, start = start * 1.0, stop * 1.0
++    count = int(math.ceil((stop - start) / step))
+     cur = start
+-    while cur < stop:
++    for i in range(count):
+         yield cur
+         cur += step
+ 
+--- a/boltons/boltons/jsonutils.py
++++ b/boltons/boltons/jsonutils.py
+@@ -156,7 +156,7 @@
+             raise ValueError("'rel_seek' expected a float between"
+                              " -1.0 and 1.0, not %r" % rel_seek)
+         elif rel_seek < 0:
+-            rel_seek = 1.0 - rel_seek
++            rel_seek = 1.0 + rel_seek
+         self._rel_seek = rel_seek
+         self._blocksize = 4096
+         if rel_seek is not None:
+@@ -180,11 +180,12 @@
+         cur_pos = fo.tell()
+         while '\n' not in cur:
+             cur = fo.read(bsize)
+-            total_read += bsize
+-        try:
+-            newline_offset = cur.index('\n') + total_read - bsize
+-        except ValueError:
+-            raise  # TODO: seek to end?
++            if not cur:
++                # no newline left before the end of the file
++                fo.seek(0, os.SEEK_END)
++                return
++            total_read += len(cur)
++        newline_offset = cur.index('\n') + total_read - len(cur)
+         fo.seek(cur_pos + newline_offset)
+ 
+     def _init_rel_seek(self):
+--- a/boltons/boltons/strutils.py
++++ b/boltons/boltons/strutils.py
+@@ -1230,6 +1230,8 @@
+         Given an input string, run all substitutions given in the
+         constructor.
+         """
++        if not self.group_map:
++            return text
+         return self.combined_pattern.sub(self._get_value, text)
+ 
+ 
+--- a/boltons/boltons/tableutils.py
++++ b/boltons/boltons/tableutils.py
+@@ -290,7 +290,7 @@
+         if self.headers:
+             self._width = len(self.headers)
+             return
+-        self._width = max([len(d) for d in self._data])
++        self._width = max([len(d) for d in self._data], default=0)
+ 
+     def _fill(self):
+         width, filler = self._width, [None]
+@@ -565,17 +565,26 @@
+         """
+         lines = []
+         widths = []
+-        headers = list(self.headers)
++        headers = []
++        # same convention as to_html: empty headers means no header row
++        if with_headers and self.headers:
++            headers.extend(self.headers)
++        width = max([self._width, len(headers)]
++                    + [len(row) for row in self._data])
++        if headers:
++            headers.extend([None] * (width - len(headers)))
++        text_headers = [to_text(h, maxlen=maxlen) for h in headers]
+         text_data = [[to_text(cell, maxlen=maxlen) for cell in row]
++                     + [to_text(None, maxlen=maxlen)] * (width - len(row))
+                      for row in self._data]
+-        for idx in range(self._width):
++        for idx in range(width):
+             cur_widths = [len(row[idx]) for row in text_data]
+-            if with_headers:
+-                cur_widths.append(len(to_text(headers[idx], maxlen=maxlen)))
++            if text_headers:
++                cur_widths.append(len(text_headers[idx]))
+             widths.append(max(cur_widths))
+-        if with_headers:
++        if text_headers:
+             lines.append(' | '.join([h.center(widths[i])
+-                                     for i, h in enumerate(headers)]))
++                                     for i, h in enumerate(text_headers)]))
+             lines.append('-|-'.join(['-' * w for w in widths]))
+         for row in text_data:
+             lines.append(' | '.join([cell.center(widths[j])
+--- a/boltons/boltons/timeutils.py
++++ b/boltons/boltons/timeutils.py
+@@ -117,7 +117,12 @@
+     .. _dateutil: https://pypi.python.org/pypi/python-dateutil
+ 
+     """
+-    dt_args = [int(p) for p in _NONDIGIT_RE.split(iso_str)]
++    parts = _NONDIGIT_RE.split(iso_str)
++    if len(parts) >= 7:
++        # fractional seconds are a decimal fraction, truncated to
++        # microsecond precision
++        parts[6] = parts[6][:6].ljust(6, '0')
++    dt_args = [int(p) for p in parts]
+     return datetime(*dt_args)
+ 
+ 
+@@ -293,6 +298,24 @@
+     """
+     whence = datetime.strptime(string, format)
+     return whence.date()
++
++
++_MONTH_DAYS = (31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
++
++
++def _month_span_bounds(months):
++    """Returns the minimum and maximum number of days that *months*
++    consecutive calendar months can add up to."""
++    years, months = divmod(months, 12)
++    lo, hi = years * 365, years * 366
++    if months:
++        spans = []
++        for first in range(12):
++            window = [(first + i) % 12 for i in range(months)]
++            spans.append((sum([_MONTH_DAYS[m] for m in window]), 1 in window))
++        lo += min([days for days, _ in spans])
++        hi += max([days + has_feb for days, has_feb in spans])
++    return lo, hi
+ 
+ 
+ def daterange(start, stop, step=1, inclusive=False):
+@@ -343,6 +366,11 @@
+     datetime.date(2017, 7, 1)
+     datetime.date(2017, 8, 1)
+ 
++    A *step* pointing away from *stop* yields nothing, like
++    ``range(1, 5, -1)``. A *step* which cannot advance, such as ``0``
++    or a tuple whose months and days can cancel each other out, raises
++    :exc:`ValueError`.
++
+     *Be careful when using stop=None, as this will yield an infinite
+     sequence of dates.*
+     """
+@@ -366,14 +394,30 @@
+     
+     m_step += y_step * 12
+ 
++    # The step must move in the same direction from every date for
++    # the range to terminate, so the day step is compared against the
++    # shortest and longest spans the month step can cover.
++    lo, hi = _month_span_bounds(abs(m_step))
++    if m_step < 0:
++        lo, hi = -hi, -lo
++    if d_step > timedelta(days=-lo):
++        forward = True
++    elif d_step < timedelta(days=-hi):
++        forward = False
++    else:
++        raise ValueError('step must be able to advance, not: %r' % (step,))
++
+     if stop is None:
+         finished = lambda now, stop: False
+-    elif start <= stop:
++    elif forward:
+         finished = operator.gt if inclusive else operator.ge
+     else:
+         finished = operator.lt if inclusive else operator.le
++    return _daterange_iter(start, stop, m_step, d_step, finished)
++
++
++def _daterange_iter(start, stop, m_step, d_step, finished):
+     now = start
+-
+     while not finished(now, stop):
+         yield now
+         if m_step:
+--- a/falcon/docs/_newsfragments/1942.newandimproved.rst
++++ b/falcon/docs/_newsfragments/1942.newandimproved.rst
+@@ -0,0 +1,7 @@
++A new method, :meth:`~falcon.App.set_error_reporter` (also available as
++:meth:`falcon.asgi.App.set_error_reporter`), makes it possible to observe every
++exception raised while the framework is processing a request, e.g., in order to
++log it, or to send it to an error tracker. The reporter is called before the
++matching error handler is invoked, and it is also told whether the exception is
++going to be handled by an error handler, or propagate to the application
++server.
+--- a/falcon/docs/api/errors.rst
++++ b/falcon/docs/api/errors.rst
+@@ -17,6 +17,11 @@
+ overriding the default serializer via
+ :meth:`~.App.set_error_serializer`.
+ 
++To observe every exception raised while processing a request (for instance, in
++order to log it, or to send it to an error tracker), regardless of whether and
++how it is handled, set an error reporter via
++:meth:`~.App.set_error_reporter`.
++
+ .. note::
+ 
+     If a custom media type is used and the type includes a "+json" or
+--- a/falcon/falcon/_typing.py
++++ b/falcon/falcon/_typing.py
+@@ -111,6 +111,9 @@
+ # Error serializers
+ ErrorSerializer = Callable[[_ReqT, _RespT, 'HTTPError'], None]
+ 
++# Error reporters
++ErrorReporter = Callable[[_ReqT, Exception, dict[str, Any], bool], None]
++
+ # Sinks
+ SinkPrefix = Union[str, Pattern[str]]
+ 
+--- a/falcon/falcon/app.py
++++ b/falcon/falcon/app.py
+@@ -44,6 +44,7 @@
+ from falcon._typing import AsgiResponderCallable
+ from falcon._typing import AsgiResponderWsCallable
+ from falcon._typing import ErrorHandler
++from falcon._typing import ErrorReporter
+ from falcon._typing import ErrorSerializer
+ from falcon._typing import FindMethod
+ from falcon._typing import ProcessResponseMethod
+@@ -241,6 +242,7 @@
+     __slots__ = (
+         '_cors_enable',
+         '_error_handlers',
++        '_error_reporter',
+         '_independent_middleware',
+         '_middleware',
+         '_request_type',
+@@ -259,6 +261,7 @@
+ 
+     _cors_enable: bool
+     _error_handlers: dict[type[Exception], ErrorHandler[_ReqT, _RespT]]
++    _error_reporter: ErrorReporter[_ReqT] | None
+     _independent_middleware: bool
+     _middleware: helpers.PreparedMiddlewareResult
+     _request_type: type[_ReqT]
+@@ -387,6 +390,7 @@
+         self._response_type = response_type or Response  # type: ignore[assignment]
+ 
+         self._error_handlers = {}
++        self._error_reporter = None
+         self._serialize_error = helpers.default_serialize_error
+ 
+         self.req_options = RequestOptions()
+@@ -506,7 +510,14 @@
+ 
+             req_succeeded = False
+ 
+-        resp_status: str = code_to_http_status(resp.status)
++        resp_status: str
++        try:
++            resp_status = code_to_http_status(resp.status)
++        except Exception as ex:
++            if self._error_reporter is not None:
++                self._error_reporter(req, ex, params, False)
++            raise
++
+         default_media_type: str | None = self.resp_options.default_media_type
+ 
+         if req.method == 'HEAD' or resp_status in _BODILESS_STATUS_CODES:
+@@ -545,10 +556,16 @@
+             if length is not None:
+                 resp._headers['content-length'] = str(length)
+ 
+-        headers: list[tuple[str, str]] = resp._wsgi_headers(default_media_type)
+-
+-        # Return the response per the WSGI spec.
+-        start_response(resp_status, headers)
++        try:
++            headers: list[tuple[str, str]] = resp._wsgi_headers(default_media_type)
++
++            # Return the response per the WSGI spec.
++            start_response(resp_status, headers)
++        except Exception as ex:
++            if self._error_reporter is not None:
++                self._error_reporter(req, ex, params, False)
++            raise
++
+         return body
+ 
+     # NOTE(caselit): the return type depends on the router, hardcoded to
+@@ -1083,6 +1100,64 @@
+ 
+         self._serialize_error = serializer
+ 
++    def set_error_reporter(self, reporter: ErrorReporter[_ReqT] | None) -> None:
++        """Set a callable to observe exceptions raised while processing requests.
++
++        The reporter is invoked for every exception that is passed to the
++        app's error handling, including instances of :class:`~.HTTPError` and
++        :class:`~.HTTPStatus`, regardless of whether the exception was raised
++        while routing the request, in a middleware component, hook or
++        responder, or while rendering the response body. This makes it
++        possible, for example, to log every error or to send it to an error
++        tracker from a single place.
++
++        The reporter is called before the error handler matching the exception
++        (if any) is invoked. In addition, it is called for:
++
++        * An instance of :class:`~.HTTPError` or :class:`~.HTTPStatus` raised
++          by an error handler (reported as handled, since the response is
++          rendered from it).
++        * Any other exception raised by an error handler or by the error
++          serializer (reported as unhandled, since it propagates to the
++          application server).
++        * An exception preventing the response from being started, such as an
++          invalid response status (reported as unhandled).
++
++        An exception object is only reported once, even if an error handler
++        re-raises the very same exception it was passed.
++
++        Only one reporter can be set at a time; calling this method again
++        replaces the previously set reporter. Passing ``None`` removes it.
++
++        Note:
++            The reporter is a regular synchronous callable for both WSGI and
++            ASGI apps. It should return quickly, and should not raise.
++
++        For example::
++
++            def report_error(
++                req: Request, ex: Exception, params: dict[str, Any], handled: bool
++            ) -> None:
++                if not handled or not isinstance(ex, (HTTPError, HTTPStatus)):
++                    logging.error('Error handling %s', req.path, exc_info=ex)
++
++            app.set_error_reporter(report_error)
++
++        Args:
++            reporter (callable): A function taking the form
++                ``func(req, ex, params, handled)``, where `req` is the request
++                object, `ex` is the exception that was raised, `params` is
++                the dict of keyword arguments that were (or would have been)
++                passed to the responder, and `handled` is ``True`` if an
++                error handler matching the exception type was found, or
++                ``False`` if the exception will propagate to the application
++                server.
++
++        .. versionadded:: 4.4
++        """
++
++        self._error_reporter = reporter
++
+     # ------------------------------------------------------------------------
+     # Helpers that require self
+     # ------------------------------------------------------------------------
+@@ -1263,6 +1338,12 @@
+         """
+         err_handler = self._find_error_handler(ex)
+ 
++        reporter = self._error_reporter
++        if reporter is not None:
++            return self._handle_and_report_exception(
++                req, resp, ex, params, err_handler, reporter
++            )
++
+         # NOTE(caselit): Reset body, data and media before calling the handler
+         resp.text = resp.data = resp.media = None
+         if err_handler is not None:
+@@ -1280,6 +1361,46 @@
+         # would have matched one of the corresponding default
+         # handlers.
+         return False
++
++    def _handle_and_report_exception(
++        self,
++        req: _ReqT,
++        resp: _RespT,
++        ex: Exception,
++        params: dict[str, Any],
++        err_handler: ErrorHandler[_ReqT, _RespT] | None,
++        reporter: ErrorReporter[_ReqT],
++    ) -> bool:
++        """Handle an exception in the same way as above, and report it.
++
++        Exceptions raised in the process of handling `ex` are reported too,
++        unless it is the very same exception object that was reported already.
++        """
++        reporter(req, ex, params, err_handler is not None)
++
++        resp.text = resp.data = resp.media = None
++        if err_handler is None:
++            return False
++
++        try:
++            try:
++                err_handler(req, resp, ex, params)
++            except HTTPStatus as status:
++                if status is not ex:
++                    reporter(req, status, params, True)
++                    ex = status
++                self._compose_status_response(req, resp, status)
++            except HTTPError as error:
++                if error is not ex:
++                    reporter(req, error, params, True)
++                    ex = error
++                self._compose_error_response(req, resp, error)
++        except Exception as unhandled:
++            if unhandled is not ex:
++                reporter(req, unhandled, params, False)
++            raise
++
++        return True
+ 
+     # PERF(kgriffs): Moved from api_helpers since it is slightly faster
+     # to call using self, and this function is called for most
+--- a/falcon/falcon/asgi/app.py
++++ b/falcon/falcon/asgi/app.py
+@@ -39,6 +39,7 @@
+ from falcon._typing import _ExcT
+ from falcon._typing import _UNSET
+ from falcon._typing import AsgiErrorHandler
++from falcon._typing import ErrorReporter
+ from falcon._typing import AsgiReceive
+ from falcon._typing import AsgiResponderCallable
+ from falcon._typing import AsgiResponderWsCallable
+@@ -652,7 +653,14 @@
+ 
+             req_succeeded = False
+ 
+-        resp_status: int = resp.status_code
++        resp_status: int
++        try:
++            resp_status = resp.status_code
++        except Exception as ex:
++            if self._error_reporter is not None:
++                self._error_reporter(req, ex, params, False)
++            raise
++
+         default_media_type: str | None = self.resp_options.default_media_type
+ 
+         if req.method == 'HEAD' or resp_status in _BODILESS_STATUS_CODES:
+@@ -685,15 +693,20 @@
+                 #   by turning around and calling it's own on_get().
+                 resp._headers['content-length'] = str(len(data)) if data else '0'
+ 
+-            await send(
+-                {
+-                    # PERF(vytas): Inline the value of
+-                    #   EventType.HTTP_RESPONSE_START in this critical code path.
+-                    'type': 'http.response.start',
+-                    'status': resp_status,
+-                    'headers': resp._asgi_headers(default_media_type),
+-                }
+-            )
++            try:
++                await send(
++                    {
++                        # PERF(vytas): Inline the value of
++                        #   EventType.HTTP_RESPONSE_START in this critical code path.
++                        'type': 'http.response.start',
++                        'status': resp_status,
++                        'headers': resp._asgi_headers(default_media_type),
++                    }
++                )
++            except Exception as ex:
++                if self._error_reporter is not None:
++                    self._error_reporter(req, ex, params, False)
++                raise
+ 
+             await send(_EVT_RESP_EOF)
+ 
+@@ -726,13 +739,18 @@
+ 
+             watcher = asyncio.create_task(watch_disconnect())
+ 
+-            await send(
+-                {
+-                    'type': EventType.HTTP_RESPONSE_START,
+-                    'status': resp_status,
+-                    'headers': resp._asgi_headers('text/event-stream'),
+-                }
+-            )
++            try:
++                await send(
++                    {
++                        'type': EventType.HTTP_RESPONSE_START,
++                        'status': resp_status,
++                        'headers': resp._asgi_headers('text/event-stream'),
++                    }
++                )
++            except Exception as ex:
++                if self._error_reporter is not None:
++                    self._error_reporter(req, ex, params, False)
++                raise
+ 
+             # PERF(vytas): Check resp._registered_callbacks directly to shave
+             #   off a function call since this is a hot/critical code path.
+@@ -785,6 +803,41 @@
+             #   drop the HTTP connection prematurely, for example).
+             resp._headers['content-length'] = str(len(data))
+ 
++            try:
++                await send(
++                    {
++                        # PERF(vytas): Inline the value of
++                        #   EventType.HTTP_RESPONSE_START in this critical code path.
++                        'type': 'http.response.start',
++                        'status': resp_status,
++                        'headers': resp._asgi_headers(default_media_type),
++                    }
++                )
++            except Exception as ex:
++                if self._error_reporter is not None:
++                    self._error_reporter(req, ex, params, False)
++                raise
++
++            await send(
++                {
++                    # PERF(vytas): Inline the value of
++                    #   EventType.HTTP_RESPONSE_BODY in this critical code path.
++                    'type': 'http.response.body',
++                    'body': data,
++                }
++            )
++
++            # PERF(vytas): Check resp._registered_callbacks directly to shave
++            #   off a function call since this is a hot/critical code path.
++            if resp._registered_callbacks:
++                self._schedule_callbacks(resp)
++            return
++
++        stream = resp.stream
++        if not stream:
++            resp._headers['content-length'] = '0'
++
++        try:
+             await send(
+                 {
+                     # PERF(vytas): Inline the value of
+@@ -794,35 +847,10 @@
+                     'headers': resp._asgi_headers(default_media_type),
+                 }
+             )
+-
+-            await send(
+-                {
+-                    # PERF(vytas): Inline the value of
+-                    #   EventType.HTTP_RESPONSE_BODY in this critical code path.
+-                    'type': 'http.response.body',
+-                    'body': data,
+-                }
+-            )
+-
+-            # PERF(vytas): Check resp._registered_callbacks directly to shave
+-            #   off a function call since this is a hot/critical code path.
+-            if resp._registered_callbacks:
+-                self._schedule_callbacks(resp)
+-            return
+-
+-        stream = resp.stream
+-        if not stream:
+-            resp._headers['content-length'] = '0'
+-
+-        await send(
+-            {
+-                # PERF(vytas): Inline the value of
+-                #   EventType.HTTP_RESPONSE_START in this critical code path.
+-                'type': 'http.response.start',
+-                'status': resp_status,
+-                'headers': resp._asgi_headers(default_media_type),
+-            }
+-        )
++        except Exception as ex:
++            if self._error_reporter is not None:
++                self._error_reporter(req, ex, params, False)
++            raise
+ 
+         if stream:
+             # Detect whether this is one of the following:
+@@ -1098,6 +1126,66 @@
+ 
+             self._error_handlers[exc] = handler_callable
+ 
++    def set_error_reporter(self, reporter: ErrorReporter[_ReqT] | None) -> None:
++        """Set a callable to observe exceptions raised while processing requests.
++
++        The reporter is invoked for every exception that is passed to the
++        app's error handling, including instances of :class:`~.HTTPError` and
++        :class:`~.HTTPStatus`, regardless of whether the exception was raised
++        while routing the request, in a middleware component, hook or
++        responder (including WebSocket responders), or while rendering the
++        response body. This makes it possible, for example, to log every
++        error or to send it to an error tracker from a single place.
++
++        The reporter is called before the error handler matching the exception
++        (if any) is invoked. In addition, it is called for:
++
++        * An instance of :class:`~.HTTPError` or :class:`~.HTTPStatus` raised
++          by an error handler (reported as handled, since the response is
++          rendered from it).
++        * Any other exception raised by an error handler or by the error
++          serializer (reported as unhandled, since it propagates to the
++          application server).
++        * An exception preventing the response from being started, such as an
++          invalid response status or a header value that cannot be encoded
++          (reported as unhandled).
++
++        An exception object is only reported once, even if an error handler
++        re-raises the very same exception it was passed.
++
++        Only one reporter can be set at a time; calling this method again
++        replaces the previously set reporter. Passing ``None`` removes it.
++
++        Note:
++            Unlike error handlers, the reporter must be a regular synchronous
++            callable (not a coroutine function) in an ASGI app too. It is
++            invoked directly on the event loop, so it should return quickly,
++            and should not raise.
++
++        For example::
++
++            def report_error(
++                req: Request, ex: Exception, params: dict[str, Any], handled: bool
++            ) -> None:
++                if not handled or not isinstance(ex, (HTTPError, HTTPStatus)):
++                    logging.error('Error handling %s', req.path, exc_info=ex)
++
++            app.set_error_reporter(report_error)
++
++        Args:
++            reporter (callable): A function taking the form
++                ``func(req, ex, params, handled)``, where `req` is the request
++                object, `ex` is the exception that was raised, `params` is
++                the dict of keyword arguments that were (or would have been)
++                passed to the responder, and `handled` is ``True`` if an
++                error handler matching the exception type was found, or
++                ``False`` if the exception will propagate to the application
++                server.
++
++        .. versionadded:: 4.4
++        """
++        super().set_error_reporter(reporter)
++
+     # ------------------------------------------------------------------------
+     # Helper methods
+     # ------------------------------------------------------------------------
+@@ -1403,9 +1491,42 @@
+         """
+         err_handler = self._find_error_handler(ex)
+ 
++        reporter = self._error_reporter
++        if reporter is not None:
++            reporter(req, ex, params, err_handler is not None)
++
+         if resp:
+             # NOTE(caselit): Reset body, data and media before calling the handler
+             resp.text = resp.data = resp.media = None
++
++        if err_handler is not None and reporter is not None:
++            # NOTE: Exceptions raised in the process of handling ex are
++            #   reported too, unless it is the very same exception object
++            #   that was reported already.
++            try:
++                try:
++                    kwargs = {}
++                    if ws is not None and _has_arg_name(err_handler, 'ws'):
++                        kwargs['ws'] = ws
++
++                    await err_handler(req, resp, ex, params, **kwargs)
++
++                except HTTPStatus as status:
++                    if status is not ex:
++                        reporter(req, status, params, True)
++                        ex = status
++                    await self._http_status_handler(req, resp, status, params, ws=ws)
++                except HTTPError as error:
++                    if error is not ex:
++                        reporter(req, error, params, True)
++                        ex = error
++                    await self._http_error_handler(req, resp, error, params, ws=ws)
++            except Exception as unhandled:
++                if unhandled is not ex:
++                    reporter(req, unhandled, params, False)
++                raise
++
++            return True
+ 
+         if err_handler is not None:
+             try:
+--- a/falcon/tests/test_error_reporter.py
++++ b/falcon/tests/test_error_reporter.py
+@@ -0,0 +1,346 @@
++import io
++
++import pytest
++
++import falcon
++import falcon.asgi
++import falcon.testing as testing
++
++
++class Reports(list):
++    def __call__(self, req, ex, params, handled):
++        self.append((req, ex, params, handled))
++
++    @property
++    def summary(self):
++        return [(type(ex), handled) for _, ex, _, handled in self]
++
++
++class CustomError(Exception):
++    pass
++
++
++def _resource(asgi, body):
++    if asgi:
++
++        class Resource:
++            async def on_get(self, req, resp, **params):
++                body(req, resp, **params)
++
++    else:
++
++        class Resource:
++            def on_get(self, req, resp, **params):
++                body(req, resp, **params)
++
++    return Resource()
++
++
++def _handler(asgi, body):
++    if asgi:
++
++        async def handler(req, resp, ex, params):
++            body(req, resp, ex, params)
++
++    else:
++
++        def handler(req, resp, ex, params):
++            body(req, resp, ex, params)
++
++    return handler
++
++
++def _raiser(ex_or_type):
++    def body(*args, **kwargs):
++        raise ex_or_type
++
++    return body
++
++
++@pytest.fixture
++def reports():
++    return Reports()
++
++
++@pytest.fixture
++def app(asgi, util, reports):
++    app = util.create_app(asgi)
++    app.set_error_reporter(reports)
++    return app
++
++
++@pytest.fixture
++def client(app):
++    return testing.TestClient(app)
++
++
++def test_no_reporter(asgi, util):
++    app = util.create_app(asgi)
++    app.add_route('/', _resource(asgi, _raiser(falcon.HTTPGone)))
++    assert testing.simulate_get(app, '/').status_code == 410
++
++
++def test_route_not_found(client, reports):
++    assert client.simulate_get('/nope').status_code == 404
++    assert reports.summary == [(falcon.HTTPRouteNotFound, True)]
++
++
++def test_replace_reporter(app, client, reports):
++    other = Reports()
++    app.set_error_reporter(other)
++    client.simulate_get('/nope')
++    assert not reports
++    assert len(other) == 1
++
++    app.set_error_reporter(None)
++    client.simulate_get('/nope')
++    assert len(other) == 1
++
++
++def test_responder_error_params(asgi, app, client, reports):
++    def handle(req, resp, ex, params):
++        resp.status = 418
++
++    app.add_route('/items/{item_id:int}', _resource(asgi, _raiser(CustomError)))
++    app.add_error_handler(CustomError, _handler(asgi, handle))
++
++    assert client.simulate_get('/items/7').status_code == 418
++    ((req, ex, params, handled),) = reports
++    assert req.path == '/items/7'
++    assert isinstance(ex, CustomError)
++    assert params == {'item_id': 7}
++    assert handled is True
++
++
++def test_reported_before_handler(asgi, app, client, reports):
++    seen = []
++
++    def handle(req, resp, ex, params):
++        seen.append(len(reports))
++
++    app.add_route('/', _resource(asgi, _raiser(CustomError)))
++    app.add_error_handler(CustomError, _handler(asgi, handle))
++
++    client.simulate_get('/')
++    assert seen == [1]
++
++
++def test_default_python_handler(app, asgi, client, reports):
++    app.add_route('/', _resource(asgi, _raiser(CustomError)))
++    assert client.simulate_get('/').status_code == 500
++    assert reports.summary == [(CustomError, True)]
++
++
++def test_unhandled(asgi, app, client, reports):
++    app.add_route('/', _resource(asgi, _raiser(CustomError)))
++    app._error_handlers.pop(Exception)
++
++    with pytest.raises(CustomError):
++        client.simulate_get('/')
++    assert reports.summary == [(CustomError, False)]
++
++
++def test_middleware_error(asgi, util, reports):
++    if asgi:
++
++        class Middleware:
++            async def process_response(self, req, resp, resource, req_succeeded):
++                raise falcon.HTTPConflict()
++
++    else:
++
++        class Middleware:
++            def process_response(self, req, resp, resource, req_succeeded):
++                raise falcon.HTTPConflict()
++
++    app = util.create_app(asgi, middleware=[Middleware()])
++    app.set_error_reporter(reports)
++    app.add_route('/', _resource(asgi, lambda req, resp: None))
++
++    assert testing.simulate_get(app, '/').status_code == 409
++    assert reports.summary == [(falcon.HTTPConflict, True)]
++
++
++def test_render_body_error(asgi, app, client, reports):
++    def body(req, resp):
++        resp.media = {'key': object()}
++
++    app.add_route('/', _resource(asgi, body))
++    assert client.simulate_get('/').status_code == 500
++    assert reports.summary == [(TypeError, True)]
++
++
++def test_handler_reraises_same(asgi, app, client, reports):
++    def reraise(req, resp, ex, params):
++        raise ex
++
++    app.add_route('/gone', _resource(asgi, _raiser(falcon.HTTPGone)))
++    app.add_route('/status', _resource(asgi, _raiser(falcon.HTTPStatus(202))))
++    app.add_route('/custom', _resource(asgi, _raiser(CustomError)))
++    app.add_error_handler(
++        (falcon.HTTPGone, falcon.HTTPStatus, CustomError), _handler(asgi, reraise)
++    )
++
++    assert client.simulate_get('/gone').status_code == 410
++    assert reports.summary == [(falcon.HTTPGone, True)]
++
++    del reports[:]
++    assert client.simulate_get('/status').status_code == 202
++    assert reports.summary == [(falcon.HTTPStatus, True)]
++
++    del reports[:]
++    with pytest.raises(CustomError):
++        client.simulate_get('/custom')
++    assert reports.summary == [(CustomError, True)]
++
++
++@pytest.mark.parametrize(
++    'raised,status',
++    [(falcon.HTTPStatus(falcon.HTTP_202), 202), (falcon.HTTPGone(), 410)],
++)
++def test_handler_raises_http(asgi, app, client, reports, raised, status):
++    def body(req, resp):
++        1 / 0
++
++    app.add_route('/', _resource(asgi, body))
++    app.add_error_handler(ZeroDivisionError, _handler(asgi, _raiser(raised)))
++
++    assert client.simulate_get('/').status_code == status
++    assert reports.summary == [(ZeroDivisionError, True), (type(raised), True)]
++    assert reports[1][1] is raised
++
++
++def test_handler_raises_other(asgi, app, reports):
++    app.add_route('/', _resource(asgi, _raiser(CustomError)))
++    app.add_error_handler(CustomError, _handler(asgi, _raiser(ValueError('oops'))))
++
++    if asgi:
++        with pytest.raises(ValueError):
++            testing.simulate_get(app, '/')
++    else:
++        env = testing.create_environ('/', wsgierrors=io.StringIO())
++        with pytest.raises(ValueError):
++            app(env, testing.StartResponseMock())
++        assert env['wsgi.errors'].getvalue() == ''
++
++    assert reports.summary == [(CustomError, True), (ValueError, False)]
++
++
++def test_serializer_raises(asgi, app, reports):
++    app.add_route('/', _resource(asgi, _raiser(falcon.HTTPGone)))
++    app.set_error_serializer(_raiser(CustomError))
++
++    if asgi:
++        with pytest.raises(CustomError):
++            testing.simulate_get(app, '/')
++    else:
++        env = testing.create_environ('/', wsgierrors=io.StringIO())
++        with pytest.raises(CustomError):
++            app(env, testing.StartResponseMock())
++        assert env['wsgi.errors'].getvalue() == ''
++
++    assert reports.summary == [(falcon.HTTPGone, True), (CustomError, False)]
++
++
++def test_serializer_raises_after_handler_raised(asgi, app, client, reports):
++    app.add_route('/', _resource(asgi, _raiser(CustomError)))
++    app.add_error_handler(CustomError, _handler(asgi, _raiser(falcon.HTTPGone)))
++    app.set_error_serializer(_raiser(KeyError))
++
++    with pytest.raises(KeyError):
++        client.simulate_get('/')
++    assert reports.summary == [
++        (CustomError, True),
++        (falcon.HTTPGone, True),
++        (KeyError, False),
++    ]
++
++
++@pytest.mark.parametrize('with_reporter', [True, False])
++def test_invalid_status(asgi, app, client, reports, with_reporter):
++    def body(req, resp):
++        resp.status = 'banana'
++
++    if not with_reporter:
++        app.set_error_reporter(None)
++    app.add_route('/', _resource(asgi, body))
++
++    with pytest.raises(ValueError):
++        client.simulate_get('/')
++    assert reports.summary == ([(ValueError, False)] if with_reporter else [])
++
++
++@pytest.mark.parametrize('with_reporter', [True, False])
++@pytest.mark.parametrize('kind', ['data', 'empty', 'head', 'stream', 'sse'])
++def test_asgi_header_cannot_be_encoded(util, reports, kind, with_reporter):
++    async def stream():
++        yield b'x'  # pragma: no cover
++
++    async def emitter():
++        yield falcon.asgi.SSEvent(text='x')  # pragma: no cover
++
++    class Resource:
++        async def on_get(self, req, resp):
++            resp.set_header('X-Thing', 'ሴ')
++            if kind == 'data':
++                resp.text = 'hello'
++            elif kind == 'stream':
++                resp.stream = stream()
++            elif kind == 'sse':
++                resp.sse = emitter()
++
++        on_head = on_get
++
++    app = util.create_app(asgi=True)
++    if with_reporter:
++        app.set_error_reporter(reports)
++    app.add_route('/', Resource())
++
++    with pytest.raises(ValueError):
++        testing.simulate_request(app, 'HEAD' if kind == 'head' else 'GET', '/')
++    assert reports.summary == ([(ValueError, False)] if with_reporter else [])
++
++
++def test_wsgi_start_response_fails(reports):
++    def body(req, resp):
++        resp.text = 'hello'
++
++    def start_response(status, headers):
++        raise CustomError
++
++    for reporter in (reports, None):
++        app = falcon.App()
++        app.set_error_reporter(reporter)
++        app.add_route('/', _resource(False, body))
++
++        with pytest.raises(CustomError):
++            app(testing.create_environ('/'), start_response)
++
++    assert reports.summary == [(CustomError, False)]
++
++
++@pytest.mark.parametrize('handler_raises', [None, falcon.HTTPStatus(403)])
++async def test_websocket(util, reports, handler_raises):
++    class Resource:
++        async def on_websocket(self, req, ws, **params):
++            raise CustomError
++
++    async def handler(req, resp, ex, params, ws=None):
++        raise handler_raises
++
++    app = util.create_app(asgi=True)
++    app.set_error_reporter(reports)
++    app.add_route('/{name}', Resource())
++    if handler_raises is not None:
++        app.add_error_handler(CustomError, handler)
++
++    async with testing.ASGIConductor(app) as conductor:
++        with pytest.raises(falcon.WebSocketDisconnected):
++            async with conductor.simulate_ws('/bob'):
++                pass  # pragma: no cover
++
++    assert reports[0][2] == {'name': 'bob'}
++    expected = [(CustomError, True)]
++    if handler_raises is not None:
++        expected.append((falcon.HTTPStatus, True))
++    assert reports.summary == expected
+--- a/markdown-it-py/CHANGELOG.md
++++ b/markdown-it-py/CHANGELOG.md
+@@ -4,6 +4,7 @@
+ 
+ * ✨ Add `--enable-tables` to the CLI for file, standard input and interactive parsing in [#422](https://github.com/executablebooks/markdown-it-py/pull/422)
+ * 🐛 Fix CLI interactive mode joining input lines with an extra newline, which split every line into its own paragraph and broke hard line breaks, in [#172](https://github.com/executablebooks/markdown-it-py/issues/172)
++* 🐛 Fix U+001C, U+001D, U+001E, U+001F and U+0085 being treated as whitespace (stripped from paragraphs, headings and table cells, collapsed in reference labels, and splitting fence info strings), by using the new `mdTrim` helper instead of `str.strip()`/`str.split()`
+ * 📚 Document the Python renderer constructor contract.
+ * 🔧 Drop the optional dependency on the `commonmark` package and its benchmark, since the upstream package is unmaintained, in [#401](https://github.com/executablebooks/markdown-it-py/pull/401)
+ 
+--- a/markdown-it-py/markdown_it/common/utils.py
++++ b/markdown-it-py/markdown_it/common/utils.py
+@@ -189,6 +189,31 @@
+     if code >= 0x2000 and code <= 0x200A:
+         return True
+     return code in MD_WHITESPACE
++
++
++# Characters removed by JavaScript's ``String.prototype.trim``
++# (the ECMAScript WhiteSpace and LineTerminator productions), minus U+FEFF.
++#
++# Unlike ``str.strip()`` and ``str.split()`` without arguments, which rely on
++# ``str.isspace()``, this does not include U+001C, U+001D, U+001E, U+001F and
++# U+0085, which are not whitespace according to CommonMark either.
++MD_TRIM_CHARS = (
++    "\t\n\v\f\r   "
++    "           "
++    " 
+\ No newline at end of file
++ 
+\ No newline at end of file
++  　"
++)
++
++MD_TRIM_RE = re.compile("[" + MD_TRIM_CHARS + "]+")
++"""Matches a run of one or more of the `MD_TRIM_CHARS`."""
++
++
++def mdTrim(string: str) -> str:
++    """Strip leading and trailing `MD_TRIM_CHARS`,
++    like ``String.prototype.trim`` does in JavaScript.
++    """
++    return string.strip(MD_TRIM_CHARS)
+ 
+ 
+ # //////////////////////////////////////////////////////////////////////////////
+@@ -254,7 +279,7 @@
+     """Helper to unify [reference labels]."""
+     # Trim and collapse whitespace
+     #
+-    string = re.sub(r"\s+", " ", string.strip())
++    string = MD_TRIM_RE.sub(" ", mdTrim(string))
+ 
+     # In node v10 'ẞ'.toLowerCase() === 'Ṿ', which is presumed to be a bug
+     # fixed in v12 (couldn't find any details).
+--- a/markdown-it-py/markdown_it/renderer.py
++++ b/markdown-it-py/markdown_it/renderer.py
+@@ -12,7 +12,7 @@
+ import inspect
+ from typing import Any, ClassVar, Protocol
+ 
+-from .common.utils import escapeHtml, unescapeAll
++from .common.utils import MD_TRIM_RE, escapeHtml, mdTrim, unescapeAll
+ from .token import Token
+ from .utils import EnvType, OptionsDict
+ 
+@@ -268,12 +268,12 @@
+         env: EnvType,
+     ) -> str:
+         token = tokens[idx]
+-        info = unescapeAll(token.info).strip() if token.info else ""
++        info = mdTrim(unescapeAll(token.info)) if token.info else ""
+         langName = ""
+         langAttrs = ""
+ 
+         if info:
+-            arr = info.split(maxsplit=1)
++            arr = MD_TRIM_RE.split(info, maxsplit=1)
+             langName = arr[0]
+             if len(arr) == 2:
+                 langAttrs = arr[1]
+--- a/markdown-it-py/markdown_it/rules_block/heading.py
++++ b/markdown-it-py/markdown_it/rules_block/heading.py
+@@ -4,7 +4,7 @@
+ 
+ import logging
+ 
+-from ..common.utils import isStrSpace
++from ..common.utils import isStrSpace, mdTrim
+ from .state_block import StateBlock
+ 
+ LOGGER = logging.getLogger(__name__)
+@@ -62,7 +62,7 @@
+     token.map = [startLine, state.line]
+ 
+     token = state.push("inline", "", 0)
+-    token.content = state.src[pos:maximum].strip()
++    token.content = mdTrim(state.src[pos:maximum])
+     token.map = [startLine, state.line]
+     token.children = []
+ 
+--- a/markdown-it-py/markdown_it/rules_block/lheading.py
++++ b/markdown-it-py/markdown_it/rules_block/lheading.py
+@@ -1,6 +1,7 @@
+ # lheading (---, ==)
+ import logging
+ 
++from ..common.utils import mdTrim
+ from .state_block import StateBlock
+ 
+ LOGGER = logging.getLogger(__name__)
+@@ -65,7 +66,7 @@
+         # Didn't find valid underline
+         return False
+ 
+-    content = state.getLines(startLine, nextLine, state.blkIndent, False).strip()
++    content = mdTrim(state.getLines(startLine, nextLine, state.blkIndent, False))
+ 
+     state.line = nextLine + 1
+ 
+--- a/markdown-it-py/markdown_it/rules_block/paragraph.py
++++ b/markdown-it-py/markdown_it/rules_block/paragraph.py
+@@ -2,6 +2,7 @@
+ 
+ import logging
+ 
++from ..common.utils import mdTrim
+ from .state_block import StateBlock
+ 
+ LOGGER = logging.getLogger(__name__)
+@@ -47,7 +48,7 @@
+ 
+         nextLine += 1
+ 
+-    content = state.getLines(startLine, nextLine, state.blkIndent, False).strip()
++    content = mdTrim(state.getLines(startLine, nextLine, state.blkIndent, False))
+ 
+     state.line = nextLine
+ 
+--- a/markdown-it-py/markdown_it/rules_block/table.py
++++ b/markdown-it-py/markdown_it/rules_block/table.py
+@@ -3,7 +3,7 @@
+ 
+ import re
+ 
+-from ..common.utils import charStrAt, isStrSpace
++from ..common.utils import charStrAt, isStrSpace, mdTrim
+ from .state_block import StateBlock
+ 
+ headerLineRe = re.compile(r"^:?-+:?$")
+@@ -108,7 +108,7 @@
+     columns = lineText.split("|")
+     aligns = []
+     for i in range(len(columns)):
+-        t = columns[i].strip()
++        t = mdTrim(columns[i])
+         if not t:
+             # allow empty columns before and after table, but not in between columns;
+             # e.g. allow ` |---| `, disallow ` ---||--- `
+@@ -126,7 +126,7 @@
+         else:
+             aligns.append("")
+ 
+-    lineText = getLine(state, startLine).strip()
++    lineText = mdTrim(getLine(state, startLine))
+     if "|" not in lineText:
+         return False
+     if state.is_code_block(startLine):
+@@ -171,7 +171,7 @@
+         # note in markdown-it this map was removed in v12.0.0 however, we keep it,
+         # since it is helpful to propagate to children tokens
+         token.map = [startLine, startLine + 1]
+-        token.content = columns[i].strip()
++        token.content = mdTrim(columns[i])
+         token.children = []
+ 
+         token = state.push("th_close", "th", -1)
+@@ -193,7 +193,7 @@
+ 
+         if terminate:
+             break
+-        lineText = getLine(state, nextLine).strip()
++        lineText = mdTrim(getLine(state, nextLine))
+         if not lineText:
+             break
+         if state.is_code_block(nextLine):
+@@ -227,7 +227,7 @@
+             # since it is helpful to propagate to children tokens
+             token.map = [nextLine, nextLine + 1]
+             try:
+-                token.content = columns[i].strip() if columns[i] else ""
++                token.content = mdTrim(columns[i]) if columns[i] else ""
+             except IndexError:
+                 token.content = ""
+             token.children = []
+--- a/markdown-it-py/tests/test_api/test_md_trim.py
++++ b/markdown-it-py/tests/test_api/test_md_trim.py
+@@ -0,0 +1,48 @@
++import pytest
++
++from markdown_it import MarkdownIt
++from markdown_it.common.utils import (
++    MD_TRIM_CHARS,
++    MD_TRIM_RE,
++    mdTrim,
++    normalizeReference,
++)
++
++NOT_MD_WHITESPACE = ["\x1c", "\x1d", "\x1e", "\x1f", "\x85"]
++
++
++def test_trim_chars():
++    assert not set(NOT_MD_WHITESPACE) & set(MD_TRIM_CHARS)
++    assert "\ufeff" not in MD_TRIM_CHARS
++    assert all(ch.isspace() for ch in MD_TRIM_CHARS)
++    assert mdTrim(" \t\n\u00a0\x85 x \x1c\u3000\r") == "\x85 x \x1c"
++    assert MD_TRIM_RE.fullmatch(MD_TRIM_CHARS)
++    assert MD_TRIM_RE.split("a \t b\x85c") == ["a", "b\x85c"]
++
++
++@pytest.mark.parametrize("ch", NOT_MD_WHITESPACE)
++def test_not_stripped(ch):
++    md = MarkdownIt().enable("table")
++    assert md.render(f"x{ch}") == f"<p>x{ch}</p>\n"
++    assert md.render(f" {ch}x \t") == f"<p>{ch}x</p>\n"
++    assert md.render(f"# x{ch} ") == f"<h1>x{ch}</h1>\n"
++    assert md.render(f"x{ch} \n===") == f"<h1>x{ch}</h1>\n"
++    table = md.render(f"| a{ch} | b |\n|---|---|\n| {ch}c | d |")
++    assert f"<th>a{ch}</th>" in table
++    assert f"<td>{ch}c</td>" in table
++
++
++@pytest.mark.parametrize("ch", NOT_MD_WHITESPACE)
++def test_reference_label(ch):
++    md = MarkdownIt()
++    assert normalizeReference(f"a{ch}b") != normalizeReference("a b")
++    assert normalizeReference(" a \t\n b ") == normalizeReference("a b")
++    assert md.render(f"[a b]\n\n[a{ch}b]: http://example.com") == "<p>[a b]</p>\n"
++    assert "<a href" in md.render("[a \t b]\n\n[a b]: http://example.com")
++
++
++@pytest.mark.parametrize("ch", NOT_MD_WHITESPACE)
++def test_fence_info(ch):
++    md = MarkdownIt()
++    assert 'class="language-a%sb"' % ch in md.render(f"```a{ch}b c\nx\n```")
++    assert 'class="language-a"' in md.render("``` a \t b\nx\n```")
+--- a/pluggy/changelog/442.bugfix.rst
++++ b/pluggy/changelog/442.bugfix.rst
+@@ -0,0 +1,3 @@
++A hookimpl argument which declares a default value now receives the value passed by the hook call, instead of always using its own default.
++The precedence is: the value passed by the hook call, then the hookspec's default value, then the hookimpl's default value.
++See :ref:`hookimpl_arg_default` for details.
+--- a/pluggy/docs/index.rst
++++ b/pluggy/docs/index.rst
+@@ -573,10 +573,9 @@
+ breaking existing *hookimpls*.
+ 
+ Only arguments without default values are considered for this opt-in
+-matching. Arguments with defaults in a *hookimpl* are treated as optional
+-keyword arguments and are not passed by pluggy, even when the hook caller
+-provides a value with the same name. If a *hookimpl* needs a value from the
+-hook call, declare it without a default value.
++matching. Arguments with defaults in a *hookimpl* are treated as optional:
++they do not have to be defined in the spec, see
++:ref:`hookimpl_arg_default` for which value they receive.
+ 
+ In other words this is ok:
+ 
+@@ -639,6 +638,66 @@
+     pm.hook.myhook(config=config, args=args)
+     # New caller; hookimpls will get new_arg="get this".
+     pm.hook.myhook(config=config, args=args, new_arg="get this")
++
++
++.. _hookimpl_arg_default:
++
++Hookimpl argument defaults
++^^^^^^^^^^^^^^^^^^^^^^^^^^
++A *hookimpl* can also declare a default value for an argument. Unlike an
++argument without a default, such an argument does not have to be defined in the
++*hookspec*, which allows a plugin to support an older version of the host
++program, whose *hookspec* does not have the argument yet:
++
++.. code-block:: python
++
++    # Old hookspec, before new_arg was added.
++    @hookspec
++    def myhook(config, args):
++        pass
++
++
++    @hookimpl
++    def myhook(args, new_arg="impl default"):
++        print(new_arg)
++
++
++    # Neither the call nor the hookspec provides new_arg;
++    # the hookimpl will get new_arg="impl default".
++    pm.hook.myhook(config=config, args=args)
++
++The *hookimpl*'s own default is only a fallback. The value an argument receives
++is, in order of precedence:
++
++1. the value passed by the hook call,
++2. the default value declared by the *hookspec*
++   (see :ref:`hookspec_arg_default`),
++3. the default value declared by the *hookimpl*.
++
++.. code-block:: python
++
++    @hookspec
++    def myhook(config, args, new_arg="spec default"):
++        pass
++
++
++    @hookimpl
++    def myhook(args, new_arg="impl default"):
++        print(new_arg)
++
++
++    # The hookimpl will get new_arg="spec default".
++    pm.hook.myhook(config=config, args=args)
++    # The hookimpl will get new_arg="get this".
++    pm.hook.myhook(config=config, args=args, new_arg="get this")
++
++This applies to all kinds of *hookimpls*, including :ref:`wrappers
++<hookwrappers>`.
++
++.. versionchanged:: 1.7
++   A value passed by the hook call, or a *hookspec* default, now takes
++   precedence over the default declared by a *hookimpl*. Previously, the
++   *hookimpl*'s default was always used.
+ 
+ 
+ .. _firstresult:
+--- a/pluggy/src/pluggy/_decorators.py
++++ b/pluggy/src/pluggy/_decorators.py
+@@ -261,12 +261,21 @@
+         When the function looks like a class method but has no implicit first
+         parameter, a :class:`DeprecationWarning` is emitted.
+     """
++    args, kwargs, _ = _varnames_and_defaults(func, legacy_noself=legacy_noself)
++    return args, kwargs
++
++
++def _varnames_and_defaults(
++    func: object, *, legacy_noself: bool = False
++) -> tuple[tuple[str, ...], tuple[str, ...], tuple[object, ...]]:
++    """Like :func:`varnames`, but additionally return the default values of
++    the keyword parameters, in the same order as their names."""
+     is_bound = False
+     if inspect.isclass(func):
+         try:
+             func = func.__init__
+         except AttributeError:  # pragma: no cover - pypy special case
+-            return (), ()
++            return (), (), ()
+         is_bound = True
+     elif not inspect.isroutine(func):  # callable object?
+         try:
+@@ -274,7 +283,7 @@
+             # wanted, so that its signature can be inspected below.
+             func = getattr(func, "__call__", func)  # noqa: B004
+         except Exception:  # pragma: no cover - pypy special case
+-            return (), ()
++            return (), (), ()
+ 
+     # Track bound methods before unwrapping, since __func__ loses that info.
+     if inspect.ismethod(func):
+@@ -289,7 +298,7 @@
+         defaults: tuple[object, ...] | None = func.__defaults__  # type: ignore[attr-defined]
+         qualname: str = func.__qualname__  # type: ignore[attr-defined]
+     except AttributeError:  # pragma: no cover
+-        return (), ()
++        return (), (), ()
+ 
+     # Get positional argument names (positional-only + positional-or-keyword)
+     args: tuple[str, ...] = code.co_varnames[: code.co_argcount]
+@@ -322,7 +331,7 @@
+                 stacklevel=2,
+             )
+ 
+-    return args, kwargs
++    return args, kwargs, defaults or ()
+ 
+ 
+ @final
+--- a/pluggy/src/pluggy/_execution.py
++++ b/pluggy/src/pluggy/_execution.py
+@@ -102,6 +102,13 @@
+                 raise HookCallError(
+                     f"hook call must provide argument {e.args[0]!r}"
+                 ) from e
++            if hook_impl.kwargdefaults:
++                # The value from the hook call (which includes the hookspec
++                # defaults) takes precedence over the hookimpl's own default.
++                args.extend(
++                    caller_kwargs.get(argname, default)
++                    for argname, default in hook_impl.kwargdefaults.items()
++                )
+ 
+             if hook_impl.hookwrapper:
+                 function_gen = run_old_style_hookwrapper(hook_impl, hook_name, args)
+--- a/pluggy/src/pluggy/_impl.py
++++ b/pluggy/src/pluggy/_impl.py
+@@ -12,7 +12,7 @@
+ from typing import TypeVar
+ 
+ from ._config import HookimplOpts
+-from ._decorators import varnames
++from ._decorators import _varnames_and_defaults
+ from ._result import Result
+ 
+ 
+@@ -30,6 +30,7 @@
+         "argnames",
+         "function",
+         "hookwrapper",
++        "kwargdefaults",
+         "kwargnames",
+         "optionalhook",
+         "opts",
+@@ -50,11 +51,15 @@
+         """:meta private:"""
+         #: The hook implementation function.
+         self.function: Final = function
+-        argnames, kwargnames = varnames(self.function)
++        argnames, kwargnames, defaults = _varnames_and_defaults(self.function)
+         #: The positional parameter names of ``function```.
+         self.argnames: Final = argnames
+         #: The keyword parameter names of ``function```.
+         self.kwargnames: Final = kwargnames
++        #: The default values of the keyword parameters of ``function``, by
++        #: name. A default is only used when neither the hook call nor the
++        #: hook specification provides a value for the parameter.
++        self.kwargdefaults: Final = dict(zip(kwargnames, defaults))
+         #: The plugin which defined this hook implementation.
+         self.plugin: Final = plugin
+         #: The :class:`HookimplOpts` used to configure this hook implementation.
+--- a/pluggy/testing/test_invocations.py
++++ b/pluggy/testing/test_invocations.py
+@@ -448,13 +448,9 @@
+ 
+         assert pm.hook.hello(arg=1) == [(1, "impl-default")]
+ 
+-    def test_does_not_override_hookimpl_default(self, pm: PluginManager) -> None:
+-        """If an impl provides its own default, it takes precedence over both
+-        the spec default and call value.
+-
+-        NOTE: This is verifying existing behavior, but it's not necessarily what
+-        we want (#442).
+-        """
++    def test_overrides_hookimpl_default(self, pm: PluginManager) -> None:
++        """If an impl provides its own default, both the call value and the
++        spec default take precedence over it (#442)."""
+ 
+         class Api:
+             @hookspec
+@@ -469,8 +465,74 @@
+         pm.add_hookspecs(Api)
+         pm.register(Plugin())
+ 
+-        assert pm.hook.hello(arg=1) == ["impl-default"]
+-        assert pm.hook.hello(arg=1, new_arg="call") == ["impl-default"]
++        assert pm.hook.hello(arg=1) == ["spec-default"]
++        assert pm.hook.hello(arg=1, new_arg="call") == ["call"]
++
++    def test_call_value_overrides_hookimpl_default(self, pm: PluginManager) -> None:
++        """A value passed by the hook call is delivered to an impl which
++        declares a default for the argument, even without a spec default."""
++
++        class Api:
++            @hookspec
++            def hello(self, arg, other):
++                pass
++
++        class Plugin:
++            @hookimpl
++            def hello(self, arg, other="impl-default", unknown="impl-unknown"):
++                return arg, other, unknown
++
++        pm.add_hookspecs(Api)
++        pm.register(Plugin())
++
++        assert pm.hook.hello(arg=1, other="call") == [(1, "call", "impl-unknown")]
++        with pytest.warns(UserWarning, match="'other'"):
++            assert pm.hook.hello(arg=1) == [(1, "impl-default", "impl-unknown")]
++
++    def test_hookimpl_default_precedence_in_wrappers(self, pm: PluginManager) -> None:
++        """The precedence is the same for all kinds of hookimpls."""
++
++        class Api:
++            @hookspec
++            def hello(self, arg, new_arg="spec-default"):
++                pass
++
++        seen = []
++
++        class Plugin:
++            @hookimpl
++            def hello(self, new_arg="impl-default", missing="impl-missing"):
++                seen.append(("impl", new_arg, missing))
++
++            @hookimpl(wrapper=True, specname="hello")
++            def hello_wrapper(self, new_arg="impl-default", missing="impl-missing"):
++                seen.append(("wrapper", new_arg, missing))
++                return (yield)
++
++            @hookimpl(hookwrapper=True, specname="hello")
++            def hello_hookwrapper(
++                self, new_arg="impl-default", missing="impl-missing"
++            ):
++                seen.append(("hookwrapper", new_arg, missing))
++                yield
++
++        pm.add_hookspecs(Api)
++        pm.register(Plugin())
++
++        pm.hook.hello(arg=1)
++        assert sorted(seen) == [
++            ("hookwrapper", "spec-default", "impl-missing"),
++            ("impl", "spec-default", "impl-missing"),
++            ("wrapper", "spec-default", "impl-missing"),
++        ]
++
++        del seen[:]
++        pm.hook.hello(arg=1, new_arg="call")
++        assert sorted(seen) == [
++            ("hookwrapper", "call", "impl-missing"),
++            ("impl", "call", "impl-missing"),
++            ("wrapper", "call", "impl-missing"),
++        ]
+ 
+     def test_new_call_argument_is_not_delivered_by_old_spec(
+         self, pm: PluginManager
+--- a/pydantic-settings/docs/index.md
++++ b/pydantic-settings/docs/index.md
+@@ -1045,6 +1045,12 @@
+   * Argparse style `--field 1 --field 2`
+   * Lazy style `--field=1,2`
+ 
++The same applies to any other sequence or set type, i.e. any subclass of `collections.abc.Sequence` or
++`collections.abc.Set` such as `tuple`, `set`, `frozenset`, `deque` or `MutableSequence`, whether it is parameterized
++(`tuple[str, ...]`), bare (`tuple`) or optional (`tuple[str, ...] | None`). The parsed value has the type of the field,
++e.g. `--field a --field b` results in `('a', 'b')` for a `tuple[str, ...]` field. `str`, `bytes` and `bytearray` are
++not treated as collections and always take a single value.
++
+ ```py
+ import sys
+ 
+@@ -1078,6 +1084,9 @@
+ These can be used in conjunction with list forms as well, e.g:
+ 
+   * `--field k1=1,k2=2 --field k3=3 --field '{"k4": 4}'` etc.
++
++The same applies to any other mapping type, i.e. any subclass of `collections.abc.Mapping` such as `OrderedDict` or
++`MutableMapping`.
+ 
+ ```py
+ import sys
+@@ -1166,9 +1175,16 @@
+ 
+ ### Variadic named options
+ 
+-List fields are repeated options by default (`--param a --param b`). Wrap a collection
++Collection fields are repeated options by default (`--param a --param b`). Wrap a collection
+ field in `CliVariadicArg` to accept remaining values after a single option
+ (`--param a b c`).
++
++`CliVariadicArg` requires a collection type, i.e. a subclass of `collections.abc.Sequence`,
++`collections.abc.Set` or `collections.abc.Mapping` other than `str`, `bytes` and `bytearray`. This
++includes `list`, `set`, `dict`, `tuple`, `frozenset`, `deque` and `OrderedDict`; the parsed value has
++the type of the field, e.g. `('a', 'b', 'c')` for `CliVariadicArg[tuple[str, ...]]`. Mapping types take
++`key=value` items (`--param k1=1 k2=2`). It can be combined with `CliPositionalArg` as well, e.g.
++`CliPositionalArg[CliVariadicArg[tuple[str, ...]]]`.
+ 
+ Repeating the option **replaces** the previous values (`--param a b --param c` becomes
+ `['c']`), which is the opposite of `action=append`. `nargs='*'` is greedy: it consumes
+--- a/pydantic-settings/pydantic_settings/sources/providers/cli.py
++++ b/pydantic-settings/pydantic_settings/sources/providers/cli.py
+@@ -63,6 +63,7 @@
+ )
+ from ..utils import (
+     InitState,
++    _annotation_contains_collection,
+     _annotation_contains_types,
+     _annotation_enum_val_to_name,
+     _get_alias_names,
+@@ -277,8 +278,8 @@
+ 
+     @cached_property
+     def is_append_action(self) -> bool:
+-        return not self.subcommand_dest and _annotation_contains_types(
+-            self.field_info.annotation, (list, set, dict, Sequence, Mapping), is_strip_annotated=True
++        return not self.subcommand_dest and _annotation_contains_collection(
++            self.field_info.annotation, is_strip_annotated=True
+         )
+ 
+     @cached_property
+@@ -701,7 +702,7 @@
+             or not any(
+                 type_
+                 for type_ in get_args(merge_type)
+-                if type_ is not type(None) and get_origin(type_) not in (dict, Mapping)
++                if type_ is not type(None) and not _lenient_issubclass(get_origin(type_), Mapping)
+             )
+         ):
+             inferred_type = merge_type
+@@ -880,9 +881,7 @@
+                 alias_names, *_ = _get_alias_names(field_name, field_info)
+                 if len(alias_names) > 1:
+                     raise SettingsError(f'positional argument {model.__name__}.{field_name} has multiple aliases')
+-                is_append_action = _annotation_contains_types(
+-                    field_info.annotation, (list, set, dict, Sequence, Mapping), is_strip_annotated=True
+-                )
++                is_append_action = _annotation_contains_collection(field_info.annotation, is_strip_annotated=True)
+                 if not is_append_action:
+                     positional_args.append((field_name, field_info))
+                 else:
+@@ -1209,9 +1208,7 @@
+ 
+     def _convert_append_action(self, kwargs: dict[str, Any], field_info: FieldInfo, is_append_action: bool) -> None:
+         if _CliVariadicArg in field_info.metadata and not is_append_action:
+-            raise SettingsError(
+-                f'CliVariadicArg requires a list, set, dict, Sequence, or Mapping type for {kwargs["dest"]}'
+-            )
++            raise SettingsError(f'CliVariadicArg requires a Sequence, Set, or Mapping type for {kwargs["dest"]}')
+         if is_append_action:
+             if _CliVariadicArg in field_info.metadata:
+                 # A required variadic option must consume at least one value, otherwise a bare flag would
+@@ -1219,7 +1216,7 @@
+                 kwargs['nargs'] = '+' if kwargs.get('required') else '*'
+             else:
+                 kwargs['action'] = 'append'
+-            if _annotation_contains_types(field_info.annotation, (dict, Mapping), is_strip_annotated=True):
++            if _annotation_contains_collection(field_info.annotation, (Mapping,), is_strip_annotated=True):
+                 self._cli_dict_args[kwargs['dest']] = field_info.annotation
+ 
+     def _convert_bool_flag(self, kwargs: dict[str, Any], field_info: FieldInfo, model_default: Any) -> None:
+--- a/pydantic-settings/pydantic_settings/sources/utils.py
++++ b/pydantic-settings/pydantic_settings/sources/utils.py
+@@ -270,6 +270,40 @@
+     return False
+ 
+ 
++_COLLECTION_TYPES: tuple[type[Any], ...] = (Sequence, AbstractSet, Mapping)
++_NON_COLLECTION_TYPES: tuple[type[Any], ...] = (str, bytes, bytearray)
++
++
++def _is_collection_type(type_: Any, collection_types: tuple[type[Any], ...] = _COLLECTION_TYPES) -> bool:
++    """Check if a type is a subclass of any of the collection types.
++
++    `str`, `bytes` and `bytearray` are sequences too, but hold a single value and are never collections.
++    """
++    return _lenient_issubclass(type_, collection_types) and not issubclass(type_, _NON_COLLECTION_TYPES)
++
++
++def _annotation_contains_collection(
++    annotation: Any,
++    collection_types: tuple[type[Any], ...] = _COLLECTION_TYPES,
++    is_strip_annotated: bool = False,
++) -> bool:
++    """Check if a type annotation contains a subclass of any of the collection types.
++
++    Unlike `_annotation_contains_types`, which matches exact types and origins, this also matches
++    subtypes such as `tuple`, `frozenset`, `deque`, `MutableSequence` or `OrderedDict`.
++    """
++    if is_strip_annotated:
++        annotation = _strip_annotated(annotation)
++    if _is_collection_type(get_origin(annotation), collection_types):
++        return True
++    if any(
++        _annotation_contains_collection(type_, collection_types, is_strip_annotated=is_strip_annotated)
++        for type_ in get_args(annotation)
++    ):
++        return True
++    return _is_collection_type(annotation, collection_types)
++
++
+ def _strip_annotated(annotation: Any) -> Any:
+     if typing_objects.is_annotated(get_origin(annotation)):
+         return annotation.__origin__
+@@ -384,6 +418,7 @@
+ 
+ __all__ = [
+     'InitState',
++    '_annotation_contains_collection',
+     '_annotation_contains_types',
+     '_annotation_enum_name_to_val',
+     '_annotation_enum_val_to_name',
+@@ -397,6 +432,7 @@
+     '_parse_env_none_str',
+     '_resolve_config_file',
+     '_resolve_type_alias',
++    '_is_collection_type',
+     '_strip_annotated',
+     '_union_has_strict_types',
+     '_union_is_complex',
+--- a/pydantic-settings/tests/test_source_cli.py
++++ b/pydantic-settings/tests/test_source_cli.py
+@@ -1,5 +1,7 @@
+ import argparse
+ import asyncio
++import collections
++import collections.abc
+ import os
+ import re
+ import sys
+@@ -2018,8 +2020,67 @@
+     assert CliApp.run(Settings, cli_args=['--options', 'a=b', 'c=d']).model_dump() == {'options': {'a': 'b', 'c': 'd'}}
+ 
+ 
++@pytest.mark.parametrize(
++    'annotation,cli_args,expected',
++    [
++        (tuple[str, ...], ['a', 'b'], ('a', 'b')),
++        (Tuple[str, ...], ['a', 'b'], ('a', 'b')),  # noqa: UP006
++        (tuple, ['a', 'b'], ('a', 'b')),
++        (frozenset[str], ['x', 'y'], frozenset({'x', 'y'})),
++        (frozenset, ['x', 'y'], frozenset({'x', 'y'})),
++        (collections.deque[int], ['1', '2'], collections.deque([1, 2])),
++        (collections.abc.MutableSequence[int], ['1', '2'], [1, 2]),
++        (Optional[tuple[str, ...]], ['a', 'b'], ('a', 'b')),
++        (collections.OrderedDict[str, str], ['a=1', 'b=2'], collections.OrderedDict(a='1', b='2')),
++        (Optional[collections.OrderedDict[str, str]], ['a=1', 'b=2'], collections.OrderedDict(a='1', b='2')),
++        (collections.abc.MutableMapping[str, str], ['a=1', 'b=2'], {'a': '1', 'b': '2'}),
++        (Optional[collections.abc.MutableMapping[str, str]], ['a=1', 'b=2'], {'a': '1', 'b': '2'}),
++    ],
++)
++def test_cli_collection_subtypes(annotation, cli_args, expected):
++    class Variadic(BaseSettings):
++        values: CliVariadicArg[annotation]  # type: ignore[valid-type]
++
++    class Positional(BaseSettings):
++        values: CliPositionalArg[CliVariadicArg[annotation]]  # type: ignore[valid-type]
++
++    class Plain(BaseSettings):
++        values: annotation  # type: ignore[valid-type]
++
++    for cls, args in (
++        (Variadic, ['--values', *cli_args]),
++        (Positional, cli_args),
++        (Plain, [arg for val in cli_args for arg in ('--values', val)]),
++    ):
++        values = CliApp.run(cls, cli_args=args).values
++        assert values == expected
++        assert type(values) is type(expected)
++
++    # A single plain value does not have to be JSON encoded.
++    single = CliApp.run(Plain, cli_args=['--values', cli_args[0]]).values
++    assert type(single) is type(expected)
++    assert len(single) == 1
++
++
++@pytest.mark.parametrize('annotation,expected', [(str, 'a'), (bytes, b'a'), (Optional[str], 'a')])
++def test_cli_str_like_is_not_a_collection(annotation, expected):
++    class Settings(BaseSettings):
++        name: annotation  # type: ignore[valid-type]
++
++    assert CliApp.run(Settings, cli_args=['--name', 'a']).name == expected
++    with pytest.raises(SettingsError, match='unrecognized arguments: b'):
++        CliApp.run(Settings, cli_args=['--name', 'a', 'b'], cli_exit_on_error=False)
++
++    with pytest.raises(SettingsError, match='CliVariadicArg requires a Sequence, Set, or Mapping type for name'):
++
++        class Variadic(BaseSettings, cli_parse_args=True):
++            name: CliVariadicArg[annotation]  # type: ignore[valid-type]
++
++        Variadic()
++
++
+ def test_cli_variadic_non_collection_raises():
+-    with pytest.raises(SettingsError, match='CliVariadicArg requires a list, set, dict, Sequence, or Mapping type'):
++    with pytest.raises(SettingsError, match='CliVariadicArg requires a Sequence, Set, or Mapping type for param'):
+ 
+         class Settings(BaseSettings, cli_parse_args=True):
+             param: CliVariadicArg[str]

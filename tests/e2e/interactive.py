@@ -134,7 +134,8 @@ def main_session():
     check('interactive: the status line shows the spent budget', s.shows('onbudget: stopped at $0.90 of $1.00') and not s.shows('onbudget: onbudget:'), s.screen()[-600:])
 
     s.mark(); s.type('continue please')
-    check('interactive: a follow-up prompt on a spent budget is refused too, with the notice', s.wait(lambda: len(s.rows('stop')) == 2, 20) and len(s.mock('step')) == 3 and s.shows('[onbudget] Stopped'), s.screen()[-500:])
+    check('interactive: a follow-up prompt on a stopped budget is turned away with the reason, and no request is made',
+          s.wait(lambda: s.shows('the budget has stopped this session'), 20) and len(s.rows('stop')) == 1 and len(s.mock('step')) == 3 and len(s.mock('request')) == 3, s.screen()[-500:])
 
     s.mark(); s.type('/onbudget')
     check('interactive: /onbudget shows the stopped budget', s.wait(lambda: s.shows('STOPPED') and s.shows('$0.90 of $1.00 spent'), 10), s.screen()[-500:])

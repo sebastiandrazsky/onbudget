@@ -1,0 +1,74 @@
+{
+ "checks": [
+  [
+   "the session starts with the plugin loaded",
+   true
+  ],
+  [
+   "/onbudget with no budget says so",
+   true
+  ],
+  [
+   "the command sets the budget and the task starts by itself",
+   true
+  ],
+  [
+   "the task entered as the prompt, with the protocol appended",
+   true
+  ],
+  [
+   "every request went out at medium effort although the session is at high",
+   true
+  ],
+  [
+   "the model was shown a meter line after each tool result",
+   true
+  ],
+  [
+   "the turn ended by itself, within the budget, with a STATUS line",
+   true
+  ],
+  [
+   "the files exist and the tests pass",
+   true
+  ],
+  [
+   "the status line shows the spend",
+   true
+  ],
+  [
+   "/onbudget shows the budget, the spend and the request count",
+   false
+  ],
+  [
+   "a budget too small to finish is stopped by the plugin, with its notice on screen",
+   true
+  ],
+  [
+   "the stop came within the budget, or over it by less than one request",
+   true
+  ],
+  [
+   "the status line shows the stop",
+   true
+  ],
+  [
+   "a follow-up on the stopped budget is refused and no request is sent",
+   true
+  ],
+  [
+   "/onbudget off removes the budget",
+   true
+  ],
+  [
+   "no hook failed",
+   true
+  ]
+ ],
+ "permission_dialogs_answered": 13,
+ "passed": 15,
+ "failed": 1,
+ "session_cost_usd": 0.19249919999999998,
+ "claude": "2.1.289 (Claude Code)",
+ "at": "2026-10-09 04:13:46"
+}

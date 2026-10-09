@@ -15,6 +15,9 @@ Model (`opus[1m]`), effort (`--effort medium`), tools, prompt body, scoring and 
 | A plain | task list, final-line instruction | `eval/capmod` (silent external cap) | `CAP_USD`, `CAP_LOG` |
 | B prompt-only | A plus one budget paragraph before the final-line instruction | `eval/capmod` | `CAP_USD`, `CAP_LOG` |
 | C onbudget | identical to A (the plugin appends its own text) | the repository root | `ONBUDGET`, `ONBUDGET_LOG` |
+| A0 plain, simple cap | identical to A | `eval/capmod` | `CAP_USD`, `CAP_LOG`, `CAP_RULE=simple` |
+
+Arm A0 was added after the first results (see "Runs added after the first results" below).
 
 The budget paragraph of arm B, for a dollar level: "I have a usage budget of $4.20 (API-equivalent cost) for this entire
 session. Stay within it: prioritise finishing and verifying as many of the tasks as you can, and stop before you exceed it."
@@ -38,6 +41,44 @@ Launch line (all arms):
 
 There is no `--max-budget-usd` (it makes Claude Code tell the model about the budget). `claude` is the one on PATH unless
 `ONBUDGET_CLAUDE_BIN` names another; its version is recorded in every run's `env.json`.
+
+## Runs added after the first results
+
+The main queue (18 slots) finished on 2026-10-09. Two things in its results led to six more runs. The onbudget plugin was not
+changed between the two batches (git tag `eval-freeze`).
+
+1. **Arm A0, four runs.** `eval/capmod` applies onbudget's stop rule in arms A and B, including a reserve for every request
+   in flight. Plain Claude Code ran 4 to 6 subagents in parallel in all four arm A runs, so the rule stopped it with 19 to 28%
+   of the budget unspent. That is a property of the rule, not of plain Claude Code. Arm A0 is the same plain arm under the
+   simplest possible cap (`CAP_RULE=simple`: refuse only once the spend has reached the cap). It can overshoot by whatever is
+   in flight when the cap is reached. Two runs at TIGHT, two at HARD.
+2. **One more HARD run each for arms B and C**, because that is where the two were closest.
+
+`python3 eval/queue.py run --phase added` runs both groups (`simple-cap`, `hard-extra`).
+
+One scoring run was repeated by hand: in `hard-C-2-a0` both scoring attempts for falcon stalled at the test runner's 300 s
+watchdog and returned no results (the lab hit the same stall once). `python3 eval/harness.py rescore hard-C-2-a0` scored the
+saved tree again: falcon 25/25 hidden, 4148/4148 existing. The first values are kept under `score_history` in its `score.json`.
+
+## Interactive sessions with the real model
+
+`python3 eval/interactive_smoke.py` is outside the queue and its ledger. It drives one real terminal session with the real
+model through a pseudo-terminal and costs about $0.20: `/onbudget $0.50` on a small coding task, `/onbudget`, a $0.07 budget
+that cannot finish, a follow-up prompt, `/onbudget off`. It answers Claude Code's own file-permission prompts with Yes and
+declines its offer of a language-server plugin. Each session's plugin log, screen text and summary are in
+`eval/runs/interactive-real-<n>/`. Six sessions were run, $1.08 in all:
+
+| Session | Checks | Note |
+| --- | --- | --- |
+| 1, 2 | 10 of 16 | the driver judged a turn over too early, and stalled on file-permission prompts it did not expect |
+| 3, 4 | 15 of 16 | an offer to install a language-server plugin covered the prompt when the status command was typed |
+| 5 | 16 of 16 | |
+| 6 | 16 of 16 | with `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false`: the spend after a stop no longer grows |
+
+In session 4, and possibly session 3, the driver answered that plugin offer with Yes. The plugin (`pyright-lsp`) was already installed and enabled for
+the user; the answer refreshed its install timestamp. From session 5 on the driver declines the offer.
+
+Sessions 4 to 6 ran the plugin with the one change made after the freeze (a prompt sent after a stop is turned away).
 
 ## Commands
 

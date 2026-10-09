@@ -126,6 +126,48 @@
    "cost": 2.7402253999999995,
    "status": "done",
    "started": "2026-10-09 02:34:17"
+  },
+  "hard-A0-1-a0": {
+   "slot": "hard-A0-1",
+   "reserved": 3.47,
+   "cost": 3.140212,
+   "status": "done",
+   "started": "2026-10-09 02:50:19"
+  },
+  "tight-A0-2-a0": {
+   "slot": "tight-A0-2",
+   "reserved": 5.2,
+   "cost": 4.251687199999999,
+   "status": "done",
+   "started": "2026-10-09 02:57:23"
+  },
+  "tight-A0-1-a0": {
+   "slot": "tight-A0-1",
+   "reserved": 5.2,
+   "cost": 4.2536483999999986,
+   "status": "done",
+   "started": "2026-10-09 03:09:43"
+  },
+  "hard-A0-2-a0": {
+   "slot": "hard-A0-2",
+   "reserved": 3.47,
+   "cost": 3.5652178,
+   "status": "done",
+   "started": "2026-10-09 03:29:08"
+  },
+  "hard-C-3-a0": {
+   "slot": "hard-C-3",
+   "reserved": 3.47,
+   "cost": 2.1573892,
+   "status": "done",
+   "started": "2026-10-09 03:34:45"
+  },
+  "hard-B-3-a0": {
+   "slot": "hard-B-3",
+   "reserved": 3.47,
+   "cost": 2.0798638,
+   "status": "done",
+   "started": "2026-10-09 03:43:19"
   }
  },
  "exhausted": [],
@@ -157,10 +199,20 @@
   "extra": [
    "extra-tight-C-1",
    "extra-pct-B-1"
+  ],
+  "simple-cap": [
+   "hard-A0-1",
+   "tight-A0-2",
+   "tight-A0-1",
+   "hard-A0-2"
+  ],
+  "hard-extra": [
+   "hard-C-3",
+   "hard-B-3"
   ]
  },
  "current": null,
- "selection": "main",
+ "selection": "added",
  "ceiling": 62.0,
  "claude_version": "2.1.289 (Claude Code)"
 }

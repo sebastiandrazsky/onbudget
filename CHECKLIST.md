@@ -2,7 +2,7 @@
 
 A pass through onbudget in a real terminal session with a real model. It takes about fifteen minutes and costs about $1 of usage. Tick each line as you go; anything that does not match is a reason not to publish yet.
 
-The automated suites already drive these same paths against a scripted model (`python3 tests/e2e/interactive.py`). This checklist is the part they cannot do: a real model reading the meter, and your own eyes on the screen.
+The automated suites already drive these same paths against a scripted model (`python3 tests/e2e/interactive.py`), and `eval/interactive_smoke.py` drove steps 1, 2 and 4 with the real model. This checklist is the part no script can do: your own eyes on the screen, and the steps no script covered (5 and 6 with a real model).
 
 ## Set up
 
@@ -11,7 +11,7 @@ mkdir -p /tmp/onbudget-check && cd /tmp/onbudget-check && git init -q
 claude --plugin-dir ~/Documents/onbudget
 ```
 
-Accept the folder-trust question for the scratch folder.
+Accept the folder-trust question for the scratch folder. During the steps below Claude Code will ask before it creates or edits a file there; answer Yes. If it offers to install a language-server plugin, that is Claude Code's own offer and has nothing to do with onbudget.
 
 ## 1. Nothing happens until you ask
 
@@ -37,8 +37,8 @@ Accept the folder-trust question for the scratch folder.
 
 - [ ] `/onbudget $0.12 Write a 3,000-word design document for a plugin system, in a file, section by section.`
 - [ ] Before long a message appears that begins `[onbudget] Stopped:` and states the spend, the reserve, and that it comes from the plugin and not from Claude.
-- [ ] The status line reads `onbudget: budget spent (…)`. The spend shown is at or under $0.12, or over it by less than one request.
-- [ ] Send `continue`. It is refused with the same kind of notice and nothing is spent.
+- [ ] The status line reads `onbudget: stopped at $… of $0.12: …`. The figure at the stop is at or under $0.12, or over it by less than one request. It may rise by a few cents afterwards: that is Claude Code's own prompt-suggestion request (see the README's limitations).
+- [ ] Send `continue`. It is not sent: a line says the budget has stopped this session and how to go on.
 - [ ] `/onbudget off` answers `budget removed (…)`, the status line disappears, and `continue` now gets a normal answer.
 
 ## 5. A percentage budget
@@ -74,6 +74,7 @@ ONBUDGET='plenty' claude -p --plugin-dir ~/Documents/onbudget "List the files he
 - [ ] The name and email in `LICENSE`, `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` are the ones you want published.
 - [ ] `README.md` has your GitHub account in place of `<owner>` in the install line.
 - [ ] `REPORT.md` says the evaluation finished, and its numbers match the table in `README.md`.
+- [ ] You are content to publish what is under `eval/runs/`: the per-run files contain absolute paths with your user name, and the `screen.txt` files of the interactive runs show the slash commands installed on this machine. Delete what you do not want public.
 
 ## Clean up
 

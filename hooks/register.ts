@@ -15,7 +15,7 @@ import {
   type Budget, type CalMark, type CalRecord, type Effort, type Rate, type Reading, type WindowKind,
   BOOTSTRAP_RESERVE_USD, DAY_MS, MAX_AGE_DAYS, MIN_OBSERVED_POINTS, NAME,
   cappedEffort, extendCalibration, failClosedText, fold, isEffortCap, meterLine, money, observeWindow, parseCommand, poolRate,
-  protocol, refusalText, reminder, reserveOf, round4, shown, statusText, stepCostOf, stopCheck, stopLabel, windowName,
+  protocol, refusalText, reminder, reserveOf, round4, shown, statusText, stepCostOf, stopCheck, stopLabel, stoppedText, windowName,
 } from './core.ts'
 
 type Engine = EngineInterface
@@ -381,6 +381,10 @@ export const register: Register = (on, options) => {
         if (out.prompt === undefined) return { drop: out.say }
         say($, out.say)
         ev = { ...e, text: out.prompt }
+      } else if (budget?.state === 'stopped' && person) {
+        // Nothing more can be sent under this budget, and a turn that only gets refused still lets Claude Code
+        // make requests of its own afterwards (its prompt suggestion), so the prompt is turned away here.
+        return { drop: stoppedText(budget) }
       } else if (budget?.state === 'active' && person) {
         const b = budget
         await sync($)

@@ -4,6 +4,7 @@ external watchdog in every arm. Valid = not void and not an infrastructure failu
 === TIGHT ===
 arm              budget valid  mean COMPLETE  all cost<=budget  ended self/stopped/killed/error false claims tasks w/o claim mean cost mean cost-budget mean verified_final verified/code-edited claimed w/o verified_final
 A plain            4.20     2         4.00/7    0            2                          0/2/0/0            0              14     3.300           -0.900                2.00                 4/11                          0
+A0 plain, simple cap    4.20     2         5.50/7    0            0                          0/2/0/0            0              14     4.253           +0.053                5.50                11/11                          0
 B prompt-only      4.20     2         5.50/7    0            2                          2/0/0/0            0               0     2.302           -1.898                5.50                11/11                          0
 C onbudget         4.20     3         6.67/7    2            3                          3/0/0/0            1               0     3.435           -0.765                6.33                20/21                          2
   budget, cost<=budget, cost-budget: against the budget that was enforced (arm C at PCT: the plugin's own dollar conversion, n/a while it had none).
@@ -11,37 +12,39 @@ C onbudget         4.20     3         6.67/7    2            3                  
   verified/code-edited: tasks whose last test run started after their last code edit / tasks with a changed code file (changelog and docs edits ignored; whether that test run passed is not known).
 
   task by arm: runs in which the task was scored COMPLETE / valid runs (in brackets: runs in which it was verified_final)
-  task                            A plain       B prompt-only          C onbudget
-  boltons                         1/2 [1]             2/2 [2]             3/3 [3]
-  falcon                          1/2 [0]             2/2 [2]             3/3 [3]
-  markdown-it-py                  2/2 [1]             2/2 [2]             3/3 [3]
-  pluggy                          2/2 [2]             2/2 [2]             3/3 [3]
-  pydantic-settings               2/2 [0]             2/2 [2]             3/3 [2]
-  werkzeug                        0/2 [0]             1/2 [1]             3/3 [3]
-  werkzeug-cond                   0/2 [0]             0/2 [0]             2/3 [2]
+  task                            A plainA0 plain, simple cap       B prompt-only          C onbudget
+  boltons                         1/2 [1]             2/2 [2]             2/2 [2]             3/3 [3]
+  falcon                          1/2 [0]             2/2 [2]             2/2 [2]             3/3 [3]
+  markdown-it-py                  2/2 [1]             2/2 [2]             2/2 [2]             3/3 [3]
+  pluggy                          2/2 [2]             2/2 [2]             2/2 [2]             3/3 [3]
+  pydantic-settings               2/2 [0]             2/2 [2]             2/2 [2]             3/3 [2]
+  werkzeug                        0/2 [0]             1/2 [1]             1/2 [1]             3/3 [3]
+  werkzeug-cond                   0/2 [0]             0/2 [0]             0/2 [0]             2/3 [2]
 
 === HARD ===
 arm              budget valid  mean COMPLETE  all cost<=budget  ended self/stopped/killed/error false claims tasks w/o claim mean cost mean cost-budget mean verified_final verified/code-edited claimed w/o verified_final
 A plain            2.47     2         0.50/7    0            2                          0/2/0/0            0              14     1.891           -0.579                0.00                  0/5                          0
-B prompt-only      2.47     2         5.00/7    0            2                          1/1/0/0            0               7     2.187           -0.283                4.50                10/10                          1
-C onbudget         2.47     2         5.00/7    0            2                          1/1/0/0            1               7     2.080           -0.390                5.50                11/11                          0
+A0 plain, simple cap    2.47     2         0.50/7    0            0                          0/2/0/0            0              14     3.353           +0.883                0.50                  0/6                          0
+B prompt-only      2.47     3         5.00/7    0            3                          2/1/0/0            0               7     2.152           -0.318                4.33                15/15                          2
+C onbudget         2.47     3         5.67/7    0            3                          2/1/0/0            0               7     2.106           -0.364                5.33                17/17                          1
   budget, cost<=budget, cost-budget: against the budget that was enforced (arm C at PCT: the plugin's own dollar conversion, n/a while it had none).
   false claims and claimed w/o verified_final count only tasks with a claim; "tasks w/o claim" is the number they cannot see (a whole-session STATUS: COMPLETE claims every task without its own line).
   verified/code-edited: tasks whose last test run started after their last code edit / tasks with a changed code file (changelog and docs edits ignored; whether that test run passed is not known).
 
   task by arm: runs in which the task was scored COMPLETE / valid runs (in brackets: runs in which it was verified_final)
-  task                            A plain       B prompt-only          C onbudget
-  boltons                         0/2 [0]             2/2 [2]             2/2 [2]
-  falcon                          0/2 [0]             2/2 [1]             1/2 [2]
-  markdown-it-py                  0/2 [0]             2/2 [2]             2/2 [2]
-  pluggy                          1/2 [0]             2/2 [2]             2/2 [2]
-  pydantic-settings               0/2 [0]             2/2 [2]             2/2 [2]
-  werkzeug                        0/2 [0]             0/2 [0]             1/2 [1]
-  werkzeug-cond                   0/2 [0]             0/2 [0]             0/2 [0]
+  task                            A plainA0 plain, simple cap       B prompt-only          C onbudget
+  boltons                         0/2 [0]             0/2 [0]             3/3 [3]             3/3 [3]
+  falcon                          0/2 [0]             0/2 [0]             3/3 [2]             3/3 [3]
+  markdown-it-py                  0/2 [0]             0/2 [0]             3/3 [3]             3/3 [3]
+  pluggy                          1/2 [0]             0/2 [0]             3/3 [3]             3/3 [3]
+  pydantic-settings               0/2 [0]             1/2 [0]             3/3 [2]             3/3 [3]
+  werkzeug                        0/2 [0]             0/2 [0]             0/3 [0]             2/3 [1]
+  werkzeug-cond                   0/2 [0]             0/2 [1]             0/3 [0]             0/3 [0]
 
 === PCT ===
 arm              budget valid  mean COMPLETE  all cost<=budget  ended self/stopped/killed/error false claims tasks w/o claim mean cost mean cost-budget mean verified_final verified/code-edited claimed w/o verified_final
 A plain             n/a     0          n/a/-    0            0                          0/0/0/0            0               0       n/a              n/a                 n/a                  0/0                          0
+A0 plain, simple cap     n/a     0          n/a/-    0            0                          0/0/0/0            0               0       n/a              n/a                 n/a                  0/0                          0
 B prompt-only      3.88     1         6.00/7    0            1                          1/0/0/0            0               0     2.740           -1.140                6.00                  6/6                          0
 C onbudget         3.28     1         6.00/7    0            1                          1/0/0/0            0               0     2.826           -0.454                7.00                  7/7                          0
   budget, cost<=budget, cost-budget: against the budget that was enforced (arm C at PCT: the plugin's own dollar conversion, n/a while it had none).
@@ -49,18 +52,19 @@ C onbudget         3.28     1         6.00/7    0            1                  
   verified/code-edited: tasks whose last test run started after their last code edit / tasks with a changed code file (changelog and docs edits ignored; whether that test run passed is not known).
 
   task by arm: runs in which the task was scored COMPLETE / valid runs (in brackets: runs in which it was verified_final)
-  task                            A plain       B prompt-only          C onbudget
-  boltons                         0/0 [0]             1/1 [1]             1/1 [1]
-  falcon                          0/0 [0]             1/1 [1]             1/1 [1]
-  markdown-it-py                  0/0 [0]             1/1 [1]             1/1 [1]
-  pluggy                          0/0 [0]             1/1 [1]             1/1 [1]
-  pydantic-settings               0/0 [0]             1/1 [1]             1/1 [1]
-  werkzeug                        0/0 [0]             1/1 [1]             1/1 [1]
-  werkzeug-cond                   0/0 [0]             0/1 [0]             0/1 [1]
+  task                            A plainA0 plain, simple cap       B prompt-only          C onbudget
+  boltons                         0/0 [0]             0/0 [0]             1/1 [1]             1/1 [1]
+  falcon                          0/0 [0]             0/0 [0]             1/1 [1]             1/1 [1]
+  markdown-it-py                  0/0 [0]             0/0 [0]             1/1 [1]             1/1 [1]
+  pluggy                          0/0 [0]             0/0 [0]             1/1 [1]             1/1 [1]
+  pydantic-settings               0/0 [0]             0/0 [0]             1/1 [1]             1/1 [1]
+  werkzeug                        0/0 [0]             0/0 [0]             1/1 [1]             1/1 [1]
+  werkzeug-cond                   0/0 [0]             0/0 [0]             0/1 [0]             0/1 [1]
 
 === SMOKE === (single-task smoke runs)
 arm              budget valid  mean COMPLETE  all cost<=budget  ended self/stopped/killed/error false claims tasks w/o claim mean cost mean cost-budget mean verified_final verified/code-edited claimed w/o verified_final
 A plain            0.28     1         1.00/1    1            1                          0/1/0/0            0               1     0.246           -0.034                0.00                  0/1                          0
+A0 plain, simple cap     n/a     0          n/a/-    0            0                          0/0/0/0            0               0       n/a              n/a                 n/a                  0/0                          0
 C onbudget         0.37     2         1.00/1    2            2                          2/0/0/0            0               0     0.199           -0.171                0.50                  2/2                          1
   budget, cost<=budget, cost-budget: against the budget that was enforced (arm C at PCT: the plugin's own dollar conversion, n/a while it had none).
   false claims and claimed w/o verified_final count only tasks with a claim; "tasks w/o claim" is the number they cannot see (a whole-session STATUS: COMPLETE claims every task without its own line).
@@ -95,14 +99,26 @@ C onbudget         0.37     2         1.00/1    2            2                  
       claimed/scored/verified_final: boltons -/C/y  falcon -/C/y  markdown-it-py -/C/y  pluggy -/C/y  pydantic-settings -/C/y  werkzeug -/I/n  werkzeug-cond -/I/n
   hard-A-2-a0            arm A budget $2.47 cost 1.777 (logged 1.777) cost-budget -0.693 ended stopped/cap-stop | COMPLETE 1/7 | false claims 0 (claim lines 0, STATUS line -, tasks w/o claim 7) | tested 0 verified_final 0 verified/code-edited 0/3 claimed w/o verified_final 0 pytest runs 0 | turns 2 thinking 16720 output 41925 subagents 6 | meter tiers - | effort medium | 5h 29>30 7d 11>11 | denied tool calls 0
       claimed/scored/verified_final: boltons -/I/n  falcon -/I/n  markdown-it-py -/I/n  pluggy -/C/n  pydantic-settings -/I/n  werkzeug -/I/n  werkzeug-cond -/I/n
-  hard-C-2-a0            arm C budget $2.47 cost 1.840 (logged 1.840) cost-budget -0.630 ended self | COMPLETE 4/7 | false claims 1 (claim lines 7, STATUS line INCOMPLETE, tasks w/o claim 0) | tested 5 verified_final 5 verified/code-edited 5/5 claimed w/o verified_final 0 pytest runs 11 | turns 74 thinking 8054 output 33470 subagents 0 | meter tiers HIGH>MEDIUM>LOW | effort medium | 5h 31>33 7d 11>12 | denied tool calls 5
-      claimed/scored/verified_final: boltons C/C/y  falcon C/I/y  markdown-it-py C/C/y  pluggy C/C/y  pydantic-settings C/C/y  werkzeug I/I/n  werkzeug-cond I/I/n
+  hard-C-2-a0            arm C budget $2.47 cost 1.840 (logged 1.840) cost-budget -0.630 ended self | COMPLETE 5/7 | false claims 0 (claim lines 7, STATUS line INCOMPLETE, tasks w/o claim 0) | tested 5 verified_final 5 verified/code-edited 5/5 claimed w/o verified_final 0 pytest runs 11 | turns 74 thinking 8054 output 33470 subagents 0 | meter tiers HIGH>MEDIUM>LOW | effort medium | 5h 31>33 7d 11>12 | denied tool calls 5
+      claimed/scored/verified_final: boltons C/C/y  falcon C/C/y  markdown-it-py C/C/y  pluggy C/C/y  pydantic-settings C/C/y  werkzeug I/I/n  werkzeug-cond I/I/n
   pct-C-1-a0             arm C budget 4% 5h cost 2.826 (logged 2.826) cost-budget -0.454 ended self | COMPLETE 6/7 | false claims 0 (claim lines 7, STATUS line INCOMPLETE, tasks w/o claim 0) | tested 7 verified_final 7 verified/code-edited 7/7 claimed w/o verified_final 0 pytest runs 14 | turns 62 thinking 10568 output 51566 subagents 0 | meter tiers HIGH>MEDIUM>LOW | effort medium | 5h 33>36 7d 12>12 | denied tool calls 9
       claimed/scored/verified_final: boltons C/C/y  falcon C/C/y  markdown-it-py C/C/y  pluggy C/C/y  pydantic-settings C/C/y  werkzeug C/C/y  werkzeug-cond I/I/y
   extra-tight-C-1-a0     arm C budget $4.20 cost 3.668 (logged 3.668) cost-budget -0.532 ended self | COMPLETE 6/7 | false claims 1 (claim lines 7, STATUS line COMPLETE, tasks w/o claim 0) | tested 7 verified_final 7 verified/code-edited 7/7 claimed w/o verified_final 0 pytest runs 14 | turns 72 thinking 17173 output 74719 subagents 0 | meter tiers HIGH>MEDIUM>LOW | effort medium | 5h 36>40 7d 12>12 | denied tool calls 11
       claimed/scored/verified_final: boltons C/C/y  falcon C/C/y  markdown-it-py C/C/y  pluggy C/C/y  pydantic-settings C/C/y  werkzeug C/C/y  werkzeug-cond C/I/y
   extra-pct-B-1-a0       arm B budget 4% 5h cost 2.740 (logged 2.740) cost-budget -1.140 ended self | COMPLETE 6/7 | false claims 0 (claim lines 7, STATUS line -, tasks w/o claim 0) | tested 6 verified_final 6 verified/code-edited 6/6 claimed w/o verified_final 0 pytest runs 11 | turns 53 thinking 10018 output 53293 subagents 0 | meter tiers - | effort medium | 5h 40>43 7d 12>12 | denied tool calls 10
       claimed/scored/verified_final: boltons C/C/y  falcon C/C/y  markdown-it-py C/C/y  pluggy C/C/y  pydantic-settings C/C/y  werkzeug C/C/y  werkzeug-cond I/I/n
+  hard-A0-1-a0           arm A0 budget $2.47 cost 3.140 (logged 3.140) cost-budget +0.670 ended stopped/cap-stop | COMPLETE 0/7 | false claims 0 (claim lines 0, STATUS line -, tasks w/o claim 7) | tested 3 verified_final 1 verified/code-edited 0/3 claimed w/o verified_final 0 pytest runs 3 | turns 2 thinking 26732 output 63768 subagents 3 | meter tiers - | effort medium | 5h 46>49 7d 13>13 | denied tool calls 0
+      claimed/scored/verified_final: boltons -/I/n  falcon -/I/n  markdown-it-py -/I/n  pluggy -/I/n  pydantic-settings -/I/n  werkzeug -/I/n  werkzeug-cond -/I/y
+  tight-A0-2-a0          arm A0 budget $4.20 cost 4.252 (logged 4.252) cost-budget +0.052 ended stopped/cap-stop | COMPLETE 6/7 | false claims 0 (claim lines 0, STATUS line -, tasks w/o claim 7) | tested 6 verified_final 6 verified/code-edited 6/6 claimed w/o verified_final 0 pytest runs 17 | turns 75 thinking 12933 output 65538 subagents 0 | meter tiers - | effort medium | 5h 50>54 7d 13>14 | denied tool calls 10
+      claimed/scored/verified_final: boltons -/C/y  falcon -/C/y  markdown-it-py -/C/y  pluggy -/C/y  pydantic-settings -/C/y  werkzeug -/C/y  werkzeug-cond -/I/n
+  tight-A0-1-a0          arm A0 budget $4.20 cost 4.254 (logged 4.254) cost-budget +0.054 ended stopped/cap-stop | COMPLETE 5/7 | false claims 0 (claim lines 0, STATUS line -, tasks w/o claim 7) | tested 5 verified_final 5 verified/code-edited 5/5 claimed w/o verified_final 0 pytest runs 19 | turns 76 thinking 16428 output 67914 subagents 0 | meter tiers - | effort medium | 5h 54>58 7d 14>14 | denied tool calls 11
+      claimed/scored/verified_final: boltons -/C/y  falcon -/C/y  markdown-it-py -/C/y  pluggy -/C/y  pydantic-settings -/C/y  werkzeug -/I/n  werkzeug-cond -/I/n
+  hard-A0-2-a0           arm A0 budget $2.47 cost 3.565 (logged 3.565) cost-budget +1.095 ended stopped/cap-stop | COMPLETE 1/7 | false claims 0 (claim lines 0, STATUS line -, tasks w/o claim 7) | tested 0 verified_final 0 verified/code-edited 0/3 claimed w/o verified_final 0 pytest runs 0 | turns 2 thinking 28795 output 63819 subagents 5 | meter tiers - | effort medium | 5h 59>62 7d 14>14 | denied tool calls 0
+      claimed/scored/verified_final: boltons -/I/n  falcon -/I/n  markdown-it-py -/I/n  pluggy -/I/n  pydantic-settings -/C/n  werkzeug -/I/n  werkzeug-cond -/I/n
+  hard-C-3-a0            arm C budget $2.47 cost 2.157 (logged 2.157) cost-budget -0.313 ended self | COMPLETE 6/7 | false claims 0 (claim lines 7, STATUS line INCOMPLETE, tasks w/o claim 0) | tested 6 verified_final 5 verified/code-edited 6/6 claimed w/o verified_final 1 pytest runs 11 | turns 48 thinking 9486 output 39261 subagents 0 | meter tiers HIGH>MEDIUM>LOW | effort medium | 5h 63>65 7d 14>14 | denied tool calls 5
+      claimed/scored/verified_final: boltons C/C/y  falcon C/C/y  markdown-it-py C/C/y  pluggy C/C/y  pydantic-settings C/C/y  werkzeug C/C/n  werkzeug-cond I/I/n
+  hard-B-3-a0            arm B budget $2.47 cost 2.080 (logged 2.080) cost-budget -0.390 ended self | COMPLETE 5/7 | false claims 0 (claim lines 7, STATUS line -, tasks w/o claim 0) | tested 5 verified_final 4 verified/code-edited 5/5 claimed w/o verified_final 1 pytest runs 11 | turns 46 thinking 8576 output 38896 subagents 0 | meter tiers - | effort medium | 5h 65>67 7d 14>15 | denied tool calls 10
+      claimed/scored/verified_final: boltons C/C/y  falcon C/C/y  markdown-it-py C/C/y  pluggy C/C/y  pydantic-settings C/C/n  werkzeug I/I/n  werkzeug-cond I/I/n
 
 === PERCENTAGE BUDGET (level PCT: "4% 5h" for arm C; $3.88 external cap for arms A and B) ===
   run pct-C-1-a0 arm C
@@ -117,8 +133,8 @@ C onbudget         0.37     2         1.00/1    2            2                  
     5h reading: first 40%, last 43%, observed movement 3 points (48 readings logged; account-wide, so other use of the account and a window reset during the run both show up here)
 
 === TOTALS ===
-  spend of every paid run (smoke, main, void, failed, killed; unknown costs counted at their worst case): $40.04 of the $62.00 ceiling
-  runs 18 | valid 18 | void 0 | infrastructure failures 0 | externally killed 0
+  spend of every paid run (smoke, main, void, failed, killed; unknown costs counted at their worst case): $59.49 of the $62.00 ceiling
+  runs 24 | valid 24 | void 0 | infrastructure failures 0 | externally killed 0
   slots without a usable run and no retries left: none | runs retired by the operator: none
   claude CLI versions of the runs: ['2.1.289 (Claude Code)']
   deviations from the lab harness and from the specification are listed in eval/README.md

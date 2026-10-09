@@ -9,4 +9,5 @@ First version.
 - A request is refused when the spend so far, plus the cost of the dearest request seen for it and for each request still in flight, would reach the budget. The refusal is a visible notice written by the plugin.
 - Claude sees a one-line meter reading after each tool result and with each follow-up prompt. Effort is capped at medium while a budget is set (configurable).
 - Percentage budgets are converted to dollars with a rate learned from this account's own usage readings, or enforced on the window reading itself until a rate is known.
-- The budget survives compaction, a reload and a resumed session, and ends with `/clear`.
+- Once a budget has stopped a session, further prompts are turned away with the reason, so nothing more is spent on them.
+- The budget survives compaction, a reload, a resumed session and a switch to another session, and ends with `/clear`.

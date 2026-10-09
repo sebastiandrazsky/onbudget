@@ -252,6 +252,10 @@ export function refusalText(b: Budget, stop: Stop, isSubagent: boolean): string 
   ].join('\n')
 }
 
+/** Why a prompt sent after the budget stopped is not passed on. */
+export const stoppedText = (b: Budget) =>
+  `${NAME}: the budget has stopped this session (${money(b.spent)} of ${shown(b)} used: ${stopLabel(b.stop)}), so the prompt was not sent. /${NAME} off removes the budget; /${NAME} <budget> <instructions> sets a new one.`
+
 /** The made-up response when the stop check itself could not run. */
 export const failClosedText = (reason: string) =>
   `[${NAME}] Not sent: the budget check could not be completed (${reason}), and ${NAME} does not send a request it cannot check. /${NAME} off removes the budget.`

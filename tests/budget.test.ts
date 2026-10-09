@@ -154,9 +154,12 @@ describe('the stop', () => {
     expect(w.requests.length).toBe(3)
     expect(rows(w, 'stop').map(r => r.event)).toEqual(['reserve-stop', 'reserve-stop'])
     expect((await run($, '')).text).toContain('STOPPED')
-    // No meter line once stopped, and a follow-up prompt still enters (its request is what gets refused).
+    // No meter line once stopped, and a follow-up prompt is turned away before it starts a turn.
     expect((await tool($)).context).toBe(undefined)
-    expect((await prompt($, 'continue')).context).toBe(undefined)
+    const after = await prompt($, 'continue')
+    expect(after.drop).toContain('the budget has stopped this session ($0.90 of $1.00 used: the budget cannot cover another request), so the prompt was not sent')
+    expect(w.prompts.length).toBe(0) // it never entered the session
+    expect((await prompt($, 'a notification', 'task-notification')).text).toBe('a notification') // what the person did not type is left alone
   })
   test('the final cost stays within the budget when requests cost what earlier ones did', async ($, on) => {
     const w = world(on)

@@ -1,0 +1,577 @@
+--- a/boltons/boltons/iterutils.py
++++ b/boltons/boltons/iterutils.py
+@@ -526,10 +526,12 @@
+     else:
+         # swap when all args are used
+         stop, start = start * 1.0, stop * 1.0
++    # count-based, exactly like frange, so both yield the same elements
++    count = int(math.ceil((stop - start) / step))
+     cur = start
+-    while cur < stop:
++    for i in range(count):
+         yield cur
+-        cur += step
++        cur = cur + step
+ 
+ 
+ def frange(stop, start=None, step=1.0):
+--- a/boltons/boltons/jsonutils.py
++++ b/boltons/boltons/jsonutils.py
+@@ -156,7 +156,7 @@
+             raise ValueError("'rel_seek' expected a float between"
+                              " -1.0 and 1.0, not %r" % rel_seek)
+         elif rel_seek < 0:
+-            rel_seek = 1.0 - rel_seek
++            rel_seek = 1.0 + rel_seek
+         self._rel_seek = rel_seek
+         self._blocksize = 4096
+         if rel_seek is not None:
+@@ -176,15 +176,19 @@
+     def _align_to_newline(self):
+         "Aligns the file object's position to the next newline."
+         fo, bsize = self._file_obj, self._blocksize
+-        cur, total_read = '', 0
++        total_read = 0
+         cur_pos = fo.tell()
+-        while '\n' not in cur:
++        while 1:
+             cur = fo.read(bsize)
+-            total_read += bsize
+-        try:
+-            newline_offset = cur.index('\n') + total_read - bsize
+-        except ValueError:
+-            raise  # TODO: seek to end?
++            if not cur:
++                # no newline between here and the end of the file
++                fo.seek(0, os.SEEK_END)
++                return
++            newline = b'\n' if isinstance(cur, bytes) else '\n'
++            if newline in cur:
++                break
++            total_read += len(cur)
++        newline_offset = cur.index(newline) + total_read
+         fo.seek(cur_pos + newline_offset)
+ 
+     def _init_rel_seek(self):
+--- a/boltons/boltons/strutils.py
++++ b/boltons/boltons/strutils.py
+@@ -1230,6 +1230,9 @@
+         Given an input string, run all substitutions given in the
+         constructor.
+         """
++        if not self.group_map:
++            # nothing to replace; an empty pattern would match everywhere
++            return text
+         return self.combined_pattern.sub(self._get_value, text)
+ 
+ 
+--- a/boltons/boltons/tableutils.py
++++ b/boltons/boltons/tableutils.py
+@@ -565,17 +565,25 @@
+         """
+         lines = []
+         widths = []
+-        headers = list(self.headers)
+         text_data = [[to_text(cell, maxlen=maxlen) for cell in row]
+                      for row in self._data]
+-        for idx in range(self._width):
+-            cur_widths = [len(row[idx]) for row in text_data]
+-            if with_headers:
+-                cur_widths.append(len(to_text(headers[idx], maxlen=maxlen)))
+-            widths.append(max(cur_widths))
+-        if with_headers:
++        # same convention as to_html: empty headers means no header row
++        headers = []
++        if with_headers and self.headers:
++            headers.extend(self.headers)
++            headers.extend([None] * (self._width - len(headers)))
++        text_headers = [to_text(h, maxlen=maxlen) for h in headers]
++        width = max([self._width, len(text_headers)]
++                    + [len(row) for row in text_data])
++        for idx in range(width):
++            cur_widths = [len(row[idx]) for row in text_data
++                          if idx < len(row)]
++            if idx < len(text_headers):
++                cur_widths.append(len(text_headers[idx]))
++            widths.append(max(cur_widths) if cur_widths else 0)
++        if text_headers:
+             lines.append(' | '.join([h.center(widths[i])
+-                                     for i, h in enumerate(headers)]))
++                                     for i, h in enumerate(text_headers)]))
+             lines.append('-|-'.join(['-' * w for w in widths]))
+         for row in text_data:
+             lines.append(' | '.join([cell.center(widths[j])
+--- a/boltons/boltons/timeutils.py
++++ b/boltons/boltons/timeutils.py
+@@ -117,7 +117,14 @@
+     .. _dateutil: https://pypi.python.org/pypi/python-dateutil
+ 
+     """
+-    dt_args = [int(p) for p in _NONDIGIT_RE.split(iso_str)]
++    parts = _NONDIGIT_RE.split(iso_str)
++    dt_args = [int(p) for p in parts[:6]]
++    if len(parts) > 6:
++        # The seventh component is a decimal fraction of a second, not
++        # an integer count of microseconds: pad or truncate to 6 digits.
++        frac = parts[6]
++        dt_args.append(int(frac[:6].ljust(6, '0')) if frac else int(frac))
++        dt_args.extend([int(p) for p in parts[7:]])
+     return datetime(*dt_args)
+ 
+ 
+@@ -366,9 +373,36 @@
+     
+     m_step += y_step * 12
+ 
++    if not m_step and not d_step:
++        raise ValueError('step must be non-zero, not: %r' % (step,))
++
++    def advance(now):
++        if m_step:
++            m_y_step, cur_month = divmod((now.month - 1) + m_step, 12)
++            now = now.replace(year=now.year + m_y_step,
++                              month=(cur_month + 1))
++        return now + d_step
++
++    # The direction of iteration comes from the step itself (as with
++    # range()), not from the relative order of start and stop.
++    try:
++        second = advance(start)
++    except (ValueError, OverflowError):
++        # The first step leaves the range of valid dates. Keep raising
++        # that lazily, after start has been yielded.
++        forward = (m_step > 0) if m_step else (d_step > timedelta(0))
++    else:
++        if second == start:
++            raise ValueError('step does not advance from start: %r' % (step,))
++        forward = second > start
++
++    return _daterange_iter(start, stop, step, inclusive, forward, advance)
++
++
++def _daterange_iter(start, stop, step, inclusive, forward, advance):
+     if stop is None:
+         finished = lambda now, stop: False
+-    elif start <= stop:
++    elif forward:
+         finished = operator.gt if inclusive else operator.ge
+     else:
+         finished = operator.lt if inclusive else operator.le
+@@ -376,11 +410,12 @@
+ 
+     while not finished(now, stop):
+         yield now
+-        if m_step:
+-            m_y_step, cur_month = divmod((now.month - 1) + m_step, 12)
+-            now = now.replace(year=now.year + m_y_step,
+-                              month=(cur_month + 1))
+-        now = now + d_step
++        prev, now = now, advance(now)
++        # month and day steps of opposite signs can stall or turn
++        # around on later dates, which would never reach stop
++        if (now <= prev) if forward else (now >= prev):
++            raise ValueError('step does not advance from %r: %r'
++                             % (prev, step))
+     return
+ 
+ 
+--- a/falcon/falcon/_typing.py
++++ b/falcon/falcon/_typing.py
+@@ -111,6 +111,9 @@
+ # Error serializers
+ ErrorSerializer = Callable[[_ReqT, _RespT, 'HTTPError'], None]
+ 
++# Error reporters (always synchronous, for both WSGI and ASGI apps)
++ErrorReporter = Callable[[_ReqT, Exception, dict[str, Any], bool], None]
++
+ # Sinks
+ SinkPrefix = Union[str, Pattern[str]]
+ 
+--- a/falcon/falcon/app.py
++++ b/falcon/falcon/app.py
+@@ -44,6 +44,7 @@
+ from falcon._typing import AsgiResponderCallable
+ from falcon._typing import AsgiResponderWsCallable
+ from falcon._typing import ErrorHandler
++from falcon._typing import ErrorReporter
+ from falcon._typing import ErrorSerializer
+ from falcon._typing import FindMethod
+ from falcon._typing import ProcessResponseMethod
+@@ -241,6 +242,7 @@
+     __slots__ = (
+         '_cors_enable',
+         '_error_handlers',
++        '_error_reporter',
+         '_independent_middleware',
+         '_middleware',
+         '_request_type',
+@@ -259,6 +261,7 @@
+ 
+     _cors_enable: bool
+     _error_handlers: dict[type[Exception], ErrorHandler[_ReqT, _RespT]]
++    _error_reporter: ErrorReporter[_ReqT] | None
+     _independent_middleware: bool
+     _middleware: helpers.PreparedMiddlewareResult
+     _request_type: type[_ReqT]
+@@ -387,6 +390,7 @@
+         self._response_type = response_type or Response  # type: ignore[assignment]
+ 
+         self._error_handlers = {}
++        self._error_reporter = None
+         self._serialize_error = helpers.default_serialize_error
+ 
+         self.req_options = RequestOptions()
+@@ -506,49 +510,65 @@
+ 
+             req_succeeded = False
+ 
+-        resp_status: str = code_to_http_status(resp.status)
+-        default_media_type: str | None = self.resp_options.default_media_type
+-
+-        if req.method == 'HEAD' or resp_status in _BODILESS_STATUS_CODES:
+-            body = []
+-
+-            # PERF(vytas): move check for the less common and much faster path
+-            # of resp_status being in {204, 304} here; NB: this builds on the
+-            # assumption _TYPELESS_STATUS_CODES <= _BODILESS_STATUS_CODES.
+-
+-            # NOTE(kgriffs): Based on wsgiref.validate's interpretation of
+-            # RFC 2616, as commented in that module's source code. The
+-            # presence of the Content-Length header is not similarly
+-            # enforced.
+-            if resp_status in _TYPELESS_STATUS_CODES:
+-                default_media_type = None
+-            elif (
+-                length is not None
+-                and req.method == 'HEAD'
+-                and resp_status not in _BODILESS_STATUS_CODES
+-                and 'content-length' not in resp._headers
+-            ):
+-                # NOTE(kgriffs): We really should be returning a Content-Length
+-                #   in this case according to my reading of the RFCs. By
+-                #   optionally using len(data) we let a resource simulate HEAD
+-                #   by turning around and calling it's own on_get().
+-                resp._headers['content-length'] = str(length)
+-
+-        else:
+-            # PERF(kgriffs): Böse mußt sein. Operate directly on resp._headers
+-            #   to reduce overhead since this is a hot/critical code path.
+-            # NOTE(kgriffs): We always set content-length to match the
+-            #   body bytes length, even if content-length is already set. The
+-            #   reason being that web servers and LBs behave unpredictably
+-            #   when the header doesn't match the body (sometimes choosing to
+-            #   drop the HTTP connection prematurely, for example).
+-            if length is not None:
+-                resp._headers['content-length'] = str(length)
+-
+-        headers: list[tuple[str, str]] = resp._wsgi_headers(default_media_type)
+-
+-        # Return the response per the WSGI spec.
+-        start_response(resp_status, headers)
++        # PERF: Setting up a try block costs next to nothing on modern
++        #   CPython versions unless an exception is actually raised.
++        try:
++            resp_status: str = code_to_http_status(resp.status)
++            default_media_type: str | None = self.resp_options.default_media_type
++
++            if req.method == 'HEAD' or resp_status in _BODILESS_STATUS_CODES:
++                body = []
++
++                # PERF(vytas): move check for the less common and much faster
++                # path of resp_status being in {204, 304} here; NB: this builds
++                # on the assumption
++                # _TYPELESS_STATUS_CODES <= _BODILESS_STATUS_CODES.
++
++                # NOTE(kgriffs): Based on wsgiref.validate's interpretation of
++                # RFC 2616, as commented in that module's source code. The
++                # presence of the Content-Length header is not similarly
++                # enforced.
++                if resp_status in _TYPELESS_STATUS_CODES:
++                    default_media_type = None
++                elif (
++                    length is not None
++                    and req.method == 'HEAD'
++                    and resp_status not in _BODILESS_STATUS_CODES
++                    and 'content-length' not in resp._headers
++                ):
++                    # NOTE(kgriffs): We really should be returning a
++                    #   Content-Length in this case according to my reading of
++                    #   the RFCs. By optionally using len(data) we let a
++                    #   resource simulate HEAD by turning around and calling
++                    #   it's own on_get().
++                    resp._headers['content-length'] = str(length)
++
++            else:
++                # PERF(kgriffs): Böse mußt sein. Operate directly on
++                #   resp._headers to reduce overhead since this is a
++                #   hot/critical code path.
++                # NOTE(kgriffs): We always set content-length to match the
++                #   body bytes length, even if content-length is already set.
++                #   The reason being that web servers and LBs behave
++                #   unpredictably when the header doesn't match the body
++                #   (sometimes choosing to drop the HTTP connection
++                #   prematurely, for example).
++                if length is not None:
++                    resp._headers['content-length'] = str(length)
++
++            headers: list[tuple[str, str]] = resp._wsgi_headers(default_media_type)
++
++            # Return the response per the WSGI spec.
++            start_response(resp_status, headers)
++        except Exception as ex:
++            # NOTE: The response could not be started. There is nothing left
++            #   to render at this point, so the exception is only reported
++            #   (as unhandled), and propagated to the WSGI server.
++            reporter = self._error_reporter
++            if reporter is not None:
++                reporter(req, ex, params, False)
++            raise
++
+         return body
+ 
+     # NOTE(caselit): the return type depends on the router, hardcoded to
+@@ -1083,6 +1103,69 @@
+ 
+         self._serialize_error = serializer
+ 
++    def set_error_reporter(self, reporter: ErrorReporter[_ReqT] | None) -> None:
++        """Set a callable to be notified of every exception that is raised.
++
++        The error reporter is invoked for every exception that is passed to
++        the app's error handling while processing a request, regardless of
++        whether it was raised while routing the request, in a middleware
++        component, hook, or responder, or while rendering the response body.
++        This includes instances of :class:`~.HTTPError` and
++        :class:`~.HTTPStatus` (for instance, a request to an unknown route
++        reports an instance of :class:`~.HTTPRouteNotFound`). This makes the
++        reporter a convenient place for logging exceptions, or for forwarding
++        them to an error tracker, without having to replace the app's error
++        handlers.
++
++        The reporter is called *before* the matching error handler (see also:
++        :meth:`~.add_error_handler`) is invoked, and it cannot alter how the
++        exception is handled. In addition:
++
++        * If an error handler re-raises the very same exception object, that
++          exception is not reported a second time.
++        * If an error handler raises an instance of :class:`~.HTTPError` or
++          :class:`~.HTTPStatus`, the new exception is reported too (as
++          handled), and the response is rendered from it as usual.
++        * If an error handler, or the error serializer (see also:
++          :meth:`~.set_error_serializer`), raises any other exception, it is
++          reported as unhandled, and propagated to the application server.
++        * If the response cannot be started (e.g., because ``resp.status`` was
++          set to an invalid value), the resulting exception is reported as
++          unhandled, and propagated to the application server.
++
++        Only one error reporter can be set per app; calling this method again
++        replaces the previously set reporter. For example::
++
++            def report_error(req, ex, params, handled):
++                if not handled or not isinstance(ex, (HTTPError, HTTPStatus)):
++                    logging.error('%s %s', req.method, req.path, exc_info=ex)
++
++            app = App()
++            app.set_error_reporter(report_error)
++
++        Note:
++            The reporter is called as part of the request processing, so it
++            should return quickly. It should not raise exceptions either;
++            anything raised by the reporter is propagated to the application
++            server.
++
++        Args:
++            reporter (callable): A function or callable object taking the form
++                ``func(req, ex, params, handled)``, where `req` is the request
++                object, `ex` is the exception that was raised, `params` is the
++                ``dict`` of keyword arguments for the responder (which may be
++                empty if the exception was raised before the request could be
++                routed), and `handled` is ``True`` if an error handler
++                matches the type of `ex`, or ``False`` if the exception is
++                going to be propagated to the application server.
++
++                Passing ``None`` removes the currently set reporter (if any).
++
++        .. versionadded:: 4.4
++        """
++
++        self._error_reporter = reporter
++
+     # ------------------------------------------------------------------------
+     # Helpers that require self
+     # ------------------------------------------------------------------------
+@@ -1263,15 +1346,44 @@
+         """
+         err_handler = self._find_error_handler(ex)
+ 
++        reporter = self._error_reporter
++        if reporter is not None:
++            reporter(req, ex, params, err_handler is not None)
++
+         # NOTE(caselit): Reset body, data and media before calling the handler
+         resp.text = resp.data = resp.media = None
+         if err_handler is not None:
++            # NOTE: Keep track of the most recently reported exception in
++            #   order to avoid reporting the very same object more than once.
++            reported: Exception = ex
++
+             try:
+-                err_handler(req, resp, ex, params)
+-            except HTTPStatus as status:
+-                self._compose_status_response(req, resp, status)
+-            except HTTPError as error:
+-                self._compose_error_response(req, resp, error)
++                try:
++                    err_handler(req, resp, ex, params)
++                except HTTPStatus as status:
++                    if reporter is not None and status is not reported:
++                        reporter(req, status, params, True)
++                    reported = status
++
++                    self._compose_status_response(req, resp, status)
++                except HTTPError as error:
++                    if reporter is not None and error is not reported:
++                        reporter(req, error, params, True)
++                    reported = error
++
++                    self._compose_error_response(req, resp, error)
++            except Exception as unhandled:
++                # NOTE: Either the error handler raised something else than
++                #   HTTPError or HTTPStatus, or the response could not be
++                #   composed (e.g., the error serializer raised). Report, and
++                #   let the exception propagate to the WSGI server.
++                if (
++                    reporter is not None
++                    and unhandled is not ex
++                    and unhandled is not reported
++                ):
++                    reporter(req, unhandled, params, False)
++                raise
+ 
+             return True
+ 
+--- a/pydantic-settings/pydantic_settings/sources/providers/cli.py
++++ b/pydantic-settings/pydantic_settings/sources/providers/cli.py
+@@ -63,7 +63,9 @@
+ )
+ from ..utils import (
+     InitState,
++    _annotation_contains_collection,
+     _annotation_contains_types,
++    _annotation_is_collection,
+     _annotation_enum_val_to_name,
+     _get_alias_names,
+     _get_model_fields,
+@@ -277,9 +279,7 @@
+ 
+     @cached_property
+     def is_append_action(self) -> bool:
+-        return not self.subcommand_dest and _annotation_contains_types(
+-            self.field_info.annotation, (list, set, dict, Sequence, Mapping), is_strip_annotated=True
+-        )
++        return not self.subcommand_dest and _annotation_contains_collection(self.field_info.annotation)
+ 
+     @cached_property
+     def is_parser_submodel(self) -> bool:
+@@ -701,7 +701,7 @@
+             or not any(
+                 type_
+                 for type_ in get_args(merge_type)
+-                if type_ is not type(None) and get_origin(type_) not in (dict, Mapping)
++                if type_ is not type(None) and not _annotation_is_collection(type_, (Mapping,))
+             )
+         ):
+             inferred_type = merge_type
+@@ -880,9 +880,7 @@
+                 alias_names, *_ = _get_alias_names(field_name, field_info)
+                 if len(alias_names) > 1:
+                     raise SettingsError(f'positional argument {model.__name__}.{field_name} has multiple aliases')
+-                is_append_action = _annotation_contains_types(
+-                    field_info.annotation, (list, set, dict, Sequence, Mapping), is_strip_annotated=True
+-                )
++                is_append_action = _annotation_contains_collection(field_info.annotation)
+                 if not is_append_action:
+                     positional_args.append((field_name, field_info))
+                 else:
+@@ -1209,9 +1207,7 @@
+ 
+     def _convert_append_action(self, kwargs: dict[str, Any], field_info: FieldInfo, is_append_action: bool) -> None:
+         if _CliVariadicArg in field_info.metadata and not is_append_action:
+-            raise SettingsError(
+-                f'CliVariadicArg requires a list, set, dict, Sequence, or Mapping type for {kwargs["dest"]}'
+-            )
++            raise SettingsError(f'CliVariadicArg requires a Sequence, Set, or Mapping type for {kwargs["dest"]}')
+         if is_append_action:
+             if _CliVariadicArg in field_info.metadata:
+                 # A required variadic option must consume at least one value, otherwise a bare flag would
+@@ -1219,7 +1215,7 @@
+                 kwargs['nargs'] = '+' if kwargs.get('required') else '*'
+             else:
+                 kwargs['action'] = 'append'
+-            if _annotation_contains_types(field_info.annotation, (dict, Mapping), is_strip_annotated=True):
++            if _annotation_contains_collection(field_info.annotation, (Mapping,)):
+                 self._cli_dict_args[kwargs['dest']] = field_info.annotation
+ 
+     def _convert_bool_flag(self, kwargs: dict[str, Any], field_info: FieldInfo, model_default: Any) -> None:
+--- a/pydantic-settings/pydantic_settings/sources/utils.py
++++ b/pydantic-settings/pydantic_settings/sources/utils.py
+@@ -270,6 +270,49 @@
+     return False
+ 
+ 
++_COLLECTION_TYPES: tuple[type[Any], ...] = (Sequence, AbstractSet, Mapping)
++# Sequences that are consumed as a single scalar value rather than as a collection of items.
++_NON_COLLECTION_TYPES: tuple[type[Any], ...] = (str, bytes, bytearray, memoryview, Enum)
++
++
++def _is_collection_type(type_: Any, types: tuple[type[Any], ...] = _COLLECTION_TYPES) -> bool:
++    """Check if a (non-parameterized) type is a subclass of any of the collection ABCs in `types`.
++
++    `str`, `bytes` and `bytearray` are sequences but are never treated as collections.
++    """
++    try:
++        if not isinstance(type_, type) or issubclass(type_, _NON_COLLECTION_TYPES):
++            return False
++        return issubclass(type_, types)
++    except TypeError:
++        return False
++
++
++def _annotation_is_collection(
++    annotation: Any,
++    types: tuple[type[Any], ...] = _COLLECTION_TYPES,
++) -> bool:
++    """Check if the annotation itself (bare or parameterized) is a collection type, ignoring `Annotated`."""
++    annotation = _strip_annotated(_resolve_type_alias(annotation))
++    return _is_collection_type(annotation, types) or _is_collection_type(get_origin(annotation), types)
++
++
++def _annotation_contains_collection(
++    annotation: Any,
++    types: tuple[type[Any], ...] = _COLLECTION_TYPES,
++) -> bool:
++    """Check if a type annotation is, or contains (e.g. `X | None`), a collection type.
++
++    A collection type is any subclass of the `collections.abc` ABCs in `types` (by default `Sequence`,
++    `Set` and `Mapping`), bare or parameterized, e.g. `list[int]`, `tuple`, `frozenset[str]`, `deque[int]`
++    or `OrderedDict[str, str]`. `str`, `bytes` and `bytearray` are not considered collections.
++    """
++    if _annotation_is_collection(annotation, types):
++        return True
++    annotation = _strip_annotated(_resolve_type_alias(annotation))
++    return any(_annotation_contains_collection(type_, types) for type_ in get_args(annotation))
++
++
+ def _strip_annotated(annotation: Any) -> Any:
+     if typing_objects.is_annotated(get_origin(annotation)):
+         return annotation.__origin__
+@@ -384,7 +427,9 @@
+ 
+ __all__ = [
+     'InitState',
++    '_annotation_contains_collection',
+     '_annotation_contains_types',
++    '_annotation_is_collection',
+     '_annotation_enum_name_to_val',
+     '_annotation_enum_val_to_name',
+     '_annotation_is_complex',
