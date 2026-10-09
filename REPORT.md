@@ -8,7 +8,7 @@ READY WITH LIMITATIONS, once you have run `CHECKLIST.md` yourself. Until then it
 
 The plugin does what it says in headless and interactive sessions on both Claude Code builds, the evaluation finished, and its results are below. The limitations that matter:
 
-- Against a one-sentence budget instruction the gain is modest and rests on two or three runs per budget.
+- Against a short budget instruction in the prompt the gain is modest and rests on two or three runs per budget.
 - The stop holds between the conversation's requests. Requests Claude Code makes on its own are counted and cannot be refused.
 - One of 42 completion claims made under onbudget was wrong.
 - Percentage budgets are conservative estimates, and the weekly one is untested end to end.
@@ -17,7 +17,7 @@ Paid evaluation spend: $60.57 of the $65 allowed ($59.49 for the 24 queued runs,
 
 ## What was built
 
-A Claude Code plugin of function hooks: `hooks/core.ts` (the budget logic, pure functions, 320 lines) and `hooks/register.ts` (eight hooks, 525 lines). No dependencies, no build step, no network or model calls of its own.
+A Claude Code plugin of function hooks: `hooks/core.ts` (the budget logic, pure functions, 324 lines) and `hooks/register.ts` (eight hooks, 529 lines). No dependencies, no build step, no network or model calls of its own.
 
 - `/onbudget <$X | N% 5h | N% week> <task>`, `/onbudget`, `/onbudget off`; `ONBUDGET` for headless runs.
 - A ledger of the task's own spend, taken from the session's cost ledger, subagents included.

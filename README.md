@@ -30,13 +30,12 @@ Seven real bug-fix tasks in Python libraries, given in one prompt to one headles
 What that says, and does not:
 
 - Plain Claude Code under a hard cap is cut off mid-work. At the smaller budget it had spread the tasks over parallel subagents and finished almost nothing.
-- One sentence in the prompt stating the budget closes most of that gap. Against it, onbudget finished about one more task at $4.20 and did about the same at $2.47 and on the percentage budget. With two or three runs per cell this is an indication, not a proven effect.
+- A short instruction in the prompt stating the budget closes most of that gap. Against it, onbudget finished about one more task at $4.20 and did about the same at $2.47 and on the percentage budget. With two or three runs per cell this is an indication, not a proven effect.
 - A model that is told a budget and cannot see its spend plays safe: it stopped at 46% and 64% of the $4.20 budget with tasks unfinished. Shown the meter, it used 73 to 87% of the budget and finished more. It spent more per finished task ($0.52 against $0.42).
-- onbudget never overran. In one run of seven the plugin had to stop the session before the model reported; the working tree was usable and the stop said so.
+- No onbudget run in the evaluation went over its budget. In one run of seven the plugin had to stop the session before the model reported; the working tree was usable and the stop said so.
 - One completion claim in 42 was wrong: a task reported complete that failed 1 of 48 hidden tests.
 
 The full tables, the costs, a second plain baseline, the method and its limits are in `REPORT.md`. The raw results are in `eval/`.
-
 
 ## Install
 
