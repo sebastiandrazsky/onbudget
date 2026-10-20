@@ -273,7 +273,7 @@ Claude Code 2.1.304 at `~/.local/share/claude/versions/2.1.304` for every paid r
 What the runs' own logs show, read by script from `score.json` and the plugin logs (no transcript was read):
 
 - Arm C. All three runs ended by themselves, at LOW, with 0.47 to 0.61 dollars left; none reached CRITICAL or the stop. Claude Code's countdown was asked about 63, 52 and 61 times and left out every time. No request went out above the effort cap, no subagent was started, and the per-request charges sum to the session cost in every run. Every task they changed code for was tested after its last edit (5 of 5 in each run).
-- Arm D. Neither run reached Claude Code's cap; both ended by themselves. The second started seven subagents and finished six tasks for $2.25.
+- Arm D. Neither run reached Claude Code's cap; both ended by themselves. The second started seven subagents and finished six tasks for $2.25. Claude Code ran those subagents on Claude Sonnet 5.5, at medium effort by the cap plugin's log: by the run's own model usage in `out.json`, $1.32 of the $2.25 was Sonnet's and $0.93 the main session's on Opus 5.5. Every other run of both rounds used Opus 5.5 only. I found this after the readiness note, by script from `out.json` and `meter.jsonl`.
 - Arm B. `hard-r2-B-1` was still working at $2.38 when the silent safety cap (onbudget's stop rule) refused its next request; it made no report. Round one's `hard-B-1` ended the same way at $2.33.
 - By task count: five tasks cost C $1.86 to $2.00, D $2.06, B $2.10 and $2.38; six tasks cost D $2.25.
 
@@ -285,6 +285,17 @@ The interactive smoke session (`eval/runs/interactive-real-7`, 2.1.304) passed 1
 2. Arm C at HARD averaged 5.00 of 7, the threshold, so the comparison stays near the top of the README. It reads as parity: on 2.1.304 onbudget finished no more tasks than the budget sentence (5.00, n = 2) or Claude Code's own cap (5.50, n = 2). The README says so in those words.
 3. Every number in the README and here carries its Claude Code version and n. No p-values were computed.
 4. Arms B and D are reported beside C.
+5. Found after the readiness note: arm D's six-task run did most of its work in subagents on Claude Sonnet 5.5 ($1.32 of $2.25). Its 5.50 is therefore not Opus 5.5 work throughout, and the parity reading holds with that caveat. onbudget does not route subagents to another model and was not asked to.
+
+### Arm C in both rounds
+
+| Build | Claude Code | Budget | n | Tasks complete, of 7 | Within budget | Ended by itself, with a report | Wrong completion claims | Cost, each run | Per finished task |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `eval-freeze-3` | 2.1.304 | $2.47 | 3 | 5, 5, 5 | 3 of 3 | 3 of 3 | 0 of 21 | $2.00, $1.86, $1.97 | $0.39 |
+| `eval-freeze` | 2.1.289 | $2.47 | 3 | 6, 5, 6 | 3 of 3 | 2 of 3 | 0 of 14 | $2.32, $1.84, $2.16 | $0.37 |
+| `eval-freeze` | 2.1.289 | $4.20 | 3 | 7, 7, 6 | 3 of 3 | 3 of 3 | 1 of 21 | $3.07, $3.57, $3.67 | $0.52 |
+
+At $2.47, round two finished fewer tasks than round one (5.00 against 5.67, n = 3 each) with more left over and no run ending without a report. Both the build and Claude Code changed between the rounds, so these runs cannot say which moved it, and with n of 3 a difference of under a task is within noise.
 
 ### Spend
 

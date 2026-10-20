@@ -24,7 +24,7 @@ Where a budget can still be passed, and by how much, is under Limitations: one r
 
 ## Results
 
-The benchmark: seven real bug fixes in Python libraries (boltons, falcon, markdown-it-py, pluggy, pydantic-settings and two in werkzeug), given in one prompt to one headless session and scored by upstream tests the model never saw. Claude Opus 5.5 at medium effort in every run. Every row names its Claude Code version and n, the number of runs; with n of 2 or 3, treat a difference of a task or less as noise. `REPORT.md` has the method and the full tables, and `eval/` the raw data.
+The benchmark: seven real bug fixes in Python libraries (boltons, falcon, markdown-it-py, pluggy, pydantic-settings and two in werkzeug), given in one prompt to one headless session and scored by upstream tests the model never saw. Claude Opus 5.5 at medium effort in every run, except the subagents of one plain run in round two, which Claude Code ran on Claude Sonnet 5.5 (below). Every row names its Claude Code version and n, the number of runs; with n of 2 or 3, treat a difference of a task or less as noise. `REPORT.md` has the method and the full tables, and `eval/` the raw data.
 
 At $2.47 on Claude Code 2.1.304, the release current on 2026-10-20:
 
@@ -35,8 +35,8 @@ At $2.47 on Claude Code 2.1.304, the release current on 2026-10-20:
 | Budget sentence in the prompt | 2.1.304 | 2 | 5, 5 | 2 of 2, one only because a safety cap refused its next request | 1 of 2 | 0 of 7 | $2.38, $2.10 | $0.45 |
 
 - No onbudget run went over its budget, here or in the first round (Claude Code 2.1.289: 7 runs of the seven-task session and 2 single-task runs).
-- On this build onbudget finished no more tasks than plain Claude Code under its own cap or a sentence in the prompt. Claude Code 2.1.304 shows a plain session budget signals of its own: its token countdown, and with `--max-budget-usd` the budget in the system prompt. Neither `--max-budget-usd` run reached the cap, so these runs do not show what happens there.
-- By task count: five tasks cost onbudget $1.86 to $2.00, the `--max-budget-usd` arm $2.06 and the sentence arm $2.10 and $2.38; six tasks cost the `--max-budget-usd` arm $2.25. The second `--max-budget-usd` run used seven subagents; no onbudget run used any.
+- On this build onbudget finished no more tasks than plain Claude Code under its own cap or a sentence in the prompt. On 2.1.304 a plain session gets budget signals of its own: Claude Code's token countdown, and with `--max-budget-usd` the budget in the system prompt. Neither `--max-budget-usd` run reached the cap, so these runs do not show what happens there.
+- By task count: five tasks cost onbudget $1.86 to $2.00, the `--max-budget-usd` arm $2.06 and the sentence arm $2.10 and $2.38; six tasks cost the `--max-budget-usd` arm $2.25. The second `--max-budget-usd` run used seven subagents, and Claude Code ran them on Claude Sonnet 5.5: $1.32 of that run's $2.25 was Sonnet's, so its six tasks are not all Opus work. No onbudget run used a subagent.
 - One sentence-arm run was still working at $2.38 when the evaluation's silent safety cap, which applies onbudget's stop rule, refused its next request; it ended without a report. Without a cap, nothing in that arm would have stopped it.
 
 In the first round, on Claude Code 2.1.289, with an earlier build of onbudget (git tag `eval-freeze`):
@@ -56,7 +56,7 @@ On 2.1.289, plain Claude Code under a cap split the work across subagents in six
 
 ## Prior art
 
-Claude Code has budget signals of its own, and other plugins budget too. Claude Code 2.1.304 adds a countdown of tokens left to every request (`<total_tokens>`), counting down from a server-set 15 million at each prompt. Its hidden `--task-budget <tokens>` flag sends an API-side task budget in tokens. Its Wrap-Up Allowance applies at the 5-hour limit and not at the weekly one. `claude -p --max-budget-usd` caps dollars in print mode only, and its documentation says spend can pass the cap. Among plugins, redline (sankalpgunturi/redline) sets session budgets in several forms and locks tools at 90%; MartinLoop (Keesan12/martin-loop) gives dollar task budgets that end a `claude -p` child process; rainy-day (markwpearce/rainy-day-plugin) sets percentage budgets with a tool lock.
+Claude Code has budget signals of its own, and other plugins budget too. Claude Code 2.1.304 adds a countdown of tokens left to every request (`<total_tokens>`), counting down from a server-set 15 million at each prompt. Its hidden `--task-budget <tokens>` flag sends an API-side task budget in tokens. Its Wrap-Up Allowance applies at the 5-hour limit and not at the weekly one. `claude -p --max-budget-usd` caps dollars in print mode only, and its documentation says spend can pass the cap. onbudget also works in a terminal session, takes budgets in usage-window points as well as dollars, shows the model what is left after every tool result, and refuses a request the budget cannot cover before it is sent; the two ways a budget can still be passed are under Limitations. Among plugins, redline (sankalpgunturi/redline) sets session budgets in several forms and locks tools at 90%; MartinLoop (Keesan12/martin-loop) gives dollar task budgets that end a `claude -p` child process; rainy-day (markwpearce/rainy-day-plugin) sets percentage budgets with a tool lock.
 
 What onbudget adds to these is the refusal at the model request, before it is sent, and budgets counted in points of the weekly window as well as the 5-hour one.
 
@@ -88,7 +88,7 @@ Type `/onbudget`. It should answer `onbudget: no budget is set` and name its ver
 
 ### When onbudget is not running, there is no budget
 
-Nothing outside the plugin enforces a budget. If the plugin does not run, requests are neither metered nor refused, and `ONBUDGET` is ignored, so a headless task runs with no budget at all. That happens when Claude Code starts in safe mode (`--safe-mode`) or `--bare` mode, which load no plugins, when an organisation's managed settings turn plugins or mods off, and when Anthropic switches the mods API off.
+Nothing outside the plugin enforces a budget. If the plugin does not run, requests are neither metered nor refused, and `ONBUDGET` is ignored, so a headless task runs with no budget at all. That happens when Claude Code starts in safe mode (`--safe-mode`) or `--bare` mode, which load no plugins, when an organisation's managed settings turn plugins or mods off, and when Anthropic switches the mods API off. A request whose hook the engine does not run is not checked either, though its cost is in the ledger the next check reads. A hook that runs and fails, or runs out of time, is different: while a budget is set, the request is not sent, and the plugin says so (`[onbudget] Not sent: the budget check could not be completed`).
 
 How to tell. In a terminal session, `/onbudget` is offered when you type `/onb`, and once a budget is set a status line shows the spend under the prompt. Without the plugin, `/onbudget` is not offered and, typed anyway, is sent to Claude as an ordinary prompt. In a headless run, `claude -p "/onbudget"` prints `onbudget: no budget is set` without a model request when the plugin is running; or set `ONBUDGET_LOG` to a file name, and if the file is not there after the run, the plugin did not run.
 
@@ -190,7 +190,7 @@ While a budget is set, and only then, it changes four things: the effort of each
 
 **Organisations can turn mods off.** Managed settings can disable plugins or mods, and then there is no budget (see Install).
 
-**What the evaluation covered.** One model (Claude Opus 5.5), one kind of task (bug fixes in Python libraries with test suites), on macOS. Windows and Linux, the VS Code, desktop and mobile surfaces, other models, teammates and workflow agents have not been tested.
+**What the evaluation covered.** One model (Claude Opus 5.5; one plain run's subagents ran on Claude Sonnet 5.5), one kind of task (bug fixes in Python libraries with test suites), on macOS. Windows and Linux, the VS Code, desktop and mobile surfaces, other models, teammates and workflow agents have not been tested.
 
 **Completion claims are Claude's.** The plugin measures spend, not whether the work is right. The protocol asks Claude to verify before claiming and to say what it did not verify, and the STATUS line can still be wrong: in the first round (Claude Code 2.1.289) one of 42 claims made under onbudget was wrong, a task reported complete with 47 of its 48 hidden tests passing; in the second (2.1.304) none of 21 was.
 
@@ -227,4 +227,4 @@ To rename the plugin, change `NAME` in `hooks/core.ts`, the two literal `'onbudg
 
 ## License
 
-MIT. See `LICENSE`.
+MIT, copyright 2026 Sebastian Drazsky. See `LICENSE`.
