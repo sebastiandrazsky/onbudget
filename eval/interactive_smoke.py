@@ -30,7 +30,7 @@ class Session:
     def __init__(self, run_dir):
         self.log_path = os.path.join(run_dir, 'onbudget.jsonl')
         env = {k: v for k, v in os.environ.items() if not (k.startswith('CLAUDE') or k.startswith('ANTHROPIC_') or k.startswith('ONBUDGET'))}
-        env.update(CLAUDE_CODE_ENABLE_FUNCTION_HOOKS='1', DISABLE_AUTOUPDATER='1', TERM='xterm-256color', COLUMNS='160', LINES='50', ONBUDGET_LOG=self.log_path)
+        env.update(DISABLE_AUTOUPDATER='1', TERM='xterm-256color', COLUMNS='160', LINES='50', ONBUDGET_LOG=self.log_path)
         if os.environ.get('SMOKE_NO_SUGGESTIONS'): env['CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION'] = 'false'   # to see what Claude Code's own request after a turn costs
         cmd = [CLAUDE, '--plugin-dir', REPO, '--permission-mode', 'acceptEdits', '--setting-sources', 'project,local', '--strict-mcp-config',
                '--allowedTools', 'Bash(python3 -m unittest:*),Bash(ls:*)', '--disallowedTools', 'WebFetch,WebSearch', '--model', 'opus[1m]', '--effort', 'high']
@@ -125,6 +125,8 @@ def main():
         check('the turn ended by itself, within the budget, with a STATUS line', done and not s.rows('stop') and steps[-1]['spent'] <= 0.5 and s.shows('STATUS: COMPLETE', True), f"spent={steps[-1]['spent'] if steps else None} stops={s.rows('stop')}")
         check('the files exist and the tests pass', os.path.exists(os.path.join(CWD, 'fizzbuzz.py')) and subprocess.run([sys.executable, '-m', 'unittest'], cwd=CWD, capture_output=True).returncode == 0)
         check('the status line shows the spend', s.shows('onbudget: spent $', True) and s.shows('of $0.50', True))
+        check('when Claude ends the task the plugin says so, with the spend, and that the budget is still open',
+              s.wait(lambda: s.shows('Claude ended the task with STATUS: COMPLETE', True) and s.shows('The budget is still open', True), 10))
 
         s.pump(6); s.mark(); s.type('/onbudget')
         check('/onbudget shows the budget, the spend and the request count', s.wait(lambda: s.shows('of $0.50 spent') and s.shows('requests:'), 25))
@@ -142,10 +144,21 @@ def main():
         s.mark(); s.type('continue')
         check('a follow-up on the stopped budget is turned away with the reason and no request is sent',
               s.wait(lambda: s.shows('the budget has stopped this session'), 30) and len(s.rows('step')) == answered and len(s.rows('stop')) == 1)
+        os.write(s.fd, b'\x15'); s.pump(0.5)   # Claude Code 2.1.299 puts a turned-away prompt back into the input box: clear it (Ctrl-U)
 
         s.mark(); s.type('/onbudget off')
         check('/onbudget off removes the budget', s.wait(lambda: s.shows('budget removed'), 15) and len(s.rows('off')) == 1)
         after = (s.rows('off') or [{}])[0].get('spent', 0)
+
+        # Added 2026-10-20: a budget of what the 5-hour window has left, sized from the session's own reading.
+        s.mark(); s.type('/onbudget 5h Reply with the single word ready, and use no tools.')
+        sized = s.wait(lambda: len(s.rows('budget')) == 3, 30); s.turn_over(120)
+        b5 = (s.rows('budget') or [{}])[-1]
+        check('/onbudget 5h is sized from the live 5-hour reading (dollars with a learned rate, points without), and the windows are read as walls',
+              sized and b5.get('raw') == '5h' and not b5.get('pending') and (isinstance(b5.get('usd'), (int, float)) or isinstance(b5.get('allowance'), (int, float)))
+              and 'five_hour' in (b5.get('walls') or {}) and s.shows('what the 5-hour usage window had left', True), str(b5)[:400])
+        s.mark(); s.type('/onbudget off')
+        s.wait(lambda: len(s.rows('off')) == 2, 15)
         print(f"      note: spend at the stop ${second:.3f}, when the budget was removed ${after:.3f} (the difference is Claude Code's own requests after the stop, which no plugin can refuse)")
         check('no hook failed', not s.rows('hookfail') and not s.rows('stopfail'), f"{s.rows('hookfail')} {s.rows('stopfail')}")
     finally:

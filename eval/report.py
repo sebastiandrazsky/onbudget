@@ -4,7 +4,7 @@
 import glob
 import lib
 
-ARMS = (('A', 'plain'), ('A0', 'plain, simple cap'), ('B', 'prompt-only'), ('C', 'onbudget'))
+ARMS = (('A', 'plain'), ('A0', 'plain, simple cap'), ('B', 'prompt-only'), ('C', 'onbudget'), ('D', 'plain, --max-budget-usd'))
 LEVELS = ('TIGHT', 'HARD', 'PCT', 'SMOKE')
 ENDED = ('self', 'stopped', 'killed', 'error')
 
@@ -52,7 +52,7 @@ def level_table(rows, level):
     total = lambda rs, key: sum((r.get(key) or 0) for r in rs)
     for arm, label in ARMS:
         rs = [r for r in rows if r.get('level') == level and r.get('arm') == arm and usable(r)]
-        if not rs and level == 'SMOKE' and arm == 'B': continue
+        if not rs and (arm not in {r.get('arm') for r in rows} or (level == 'SMOKE' and arm == 'B')): continue   # an arm this queue never ran
         tasks = rs[0].get('tasks_total') if rs else None; judged = [r for r in rs if r.get('within_budget') is not None]
         out.append(f"{arm + ' ' + label:<15} {num(mean([r.get('budget_enforced', r.get('budget')) for r in rs]), '.2f'):>7} {len(rs):>5} {num(mean([r.get('tasks_complete') for r in rs]), '.2f') + '/' + str(tasks or '-'):>14} "
                    f"{sum(1 for r in rs if r.get('complete')):>4} {(str(sum(1 for r in judged if r['within_budget'])) if judged or not rs else 'n/a'):>12} {'/'.join(str(sum(1 for r in rs if r.get('ended') == e)) for e in ENDED):>32} "
@@ -65,12 +65,13 @@ def level_table(rows, level):
 
 
 def task_matrix(rows, level):
-    cells = {arm: [r for r in rows if r.get('level') == level and r.get('arm') == arm and usable(r)] for arm, _ in ARMS}
+    arms = [(arm, label, 28 if arm == "D" else 20) for arm, label in ARMS if any(r.get('arm') == arm for r in rows)]   # the arms this queue ran
+    cells = {arm: [r for r in rows if r.get('level') == level and r.get('arm') == arm and usable(r)] for arm, _, _ in arms}
     out = ['  task by arm: runs in which the task was scored COMPLETE / valid runs (in brackets: runs in which it was verified_final)',
-           f"  {'task':<19}" + ''.join(f'{arm + " " + label:>20}' for arm, label in ARMS)]
+           f"  {'task':<19}" + ''.join(f'{arm + " " + label:>{w}}' for arm, label, w in arms)]
     for t in lib.EVAL_TASKS:
         cell = lambda rs: f"{sum(1 for r in rs if (r.get('scored') or {}).get(t) == 'COMPLETE')}/{len(rs)} [{sum(1 for r in rs if ((r.get('per_task') or {}).get(t) or {}).get('verified_final'))}]"
-        out.append(f'  {t:<19}' + ''.join(f'{cell(cells[arm]):>20}' for arm, _ in ARMS))
+        out.append(f'  {t:<19}' + ''.join(f'{cell(cells[arm]):>{w}}' for arm, _, w in arms))
     return out
 
 

@@ -1,24 +1,32 @@
 // The world for onbudget's end-to-end tests. Loaded beside the plugin in a real Claude Code process, it
 //  - answers every model request from a script and never calls next, so no request leaves the machine;
 //  - answers $.session.usage() with a scripted cost ledger and scripted usage windows.
-// Env: MOCK_SCRIPT (a json file: a list of replies, one per model request; when it runs out the reply is the text
-// "mock done"), MOCK_LOG (json path: what the mock saw), MOCK_LEDGER (json path: the ledger and readings, kept across
-// processes so a resumed session can be given a ledger that survives or one that starts over).
-// A reply: { bash?: command to call the Bash tool with, text?: answer text, cost?: dollars it adds to the ledger,
+// Env: MOCK_SCRIPT (a json file: a list of replies, one per model request of the main thread; when it runs out the
+// reply is the text "mock done"), MOCK_AGENT_SCRIPT (optional json file: one list of replies per subagent, given out in
+// the order the subagents make their first request), MOCK_LOG (json path: what the mock saw), MOCK_LEDGER (json path:
+// the ledger and readings, kept across processes so a resumed session can be given a ledger that survives or one that
+// starts over).
+// A reply: { bash?: command to call the Bash tool with, agents?: prompts to start one subagent each with, in one
+//            answer (Claude Code runs them side by side), text?: answer text, cost?: dollars it adds to the ledger,
 //            five_hour?: number, seven_day?: number (the readings that arrive with this answer),
-//            sleep_ms?: how long the answer takes (for interrupting a request in flight) }
+//            sleep_ms?: how long the answer takes (for interrupting a request in flight, or keeping one in flight) }
 // A compaction is answered here too (a one-line summary), since the engine's own would need the model.
 import type { Register } from 'claude-code'
 
-type Reply = { bash?: string; text?: string; cost?: number; five_hour?: number; seven_day?: number; sleep_ms?: number }
+type Reply = { bash?: string; agents?: string[]; text?: string; cost?: number; five_hour?: number; seven_day?: number; sleep_ms?: number }
 let script: Reply[] | undefined
+let agentScripts: Reply[][] = []
+const agents = new Map<string, { script: Reply[]; i: number }>()
 let i = 0
+let ids = 0
 let world: { cost: number; five_hour?: number; seven_day?: number } | undefined
 const seen: unknown[] = []
 
 async function load($: any): Promise<void> {
   if (script) return
   script = JSON.parse(String(await $.fs.read(await $.env.get('MOCK_SCRIPT'))))
+  const forAgents = await $.env.get('MOCK_AGENT_SCRIPT')
+  if (forAgents) agentScripts = JSON.parse(String(await $.fs.read(forAgents)))
   world = { cost: 0 }
   const kept = await $.env.get('MOCK_LEDGER')
   if (kept && (await $.fs.exists(kept))) world = JSON.parse(String(await $.fs.read(kept)))
@@ -34,16 +42,30 @@ async function note($: any, row: unknown): Promise<void> {
 export const register: Register = (on: any) => {
   on('turn.step', async function* ($: any, e: any, next: any) {
     await load($)
-    const reply: Reply = script![i++] ?? { text: 'mock done' }
+    let reply: Reply
+    if (e.agentId) {
+      let a = agents.get(e.agentId)
+      if (!a) agents.set(e.agentId, (a = { script: agentScripts[agents.size] ?? [], i: 0 }))
+      reply = a.script[a.i++] ?? { text: 'agent done' }
+    } else reply = script![i++] ?? { text: 'mock done' }
     await note($, { kind: 'request', index: e.index, agentId: e.agentId ?? null })
     if (reply.sleep_ms) await $.clock.sleep(reply.sleep_ms, { signal: next?.signal })
     world!.cost += reply.cost ?? 0
     if (reply.five_hour !== undefined) world!.five_hour = reply.five_hour
     if (reply.seven_day !== undefined) world!.seven_day = reply.seven_day
     await note($, { kind: 'step', index: e.index, agentId: e.agentId ?? null, effort: e.effort ?? null, model: e.model, messageCount: e.messageCount, reply })
+    if (reply.agents) {
+      const uses = reply.agents.map(prompt => ({ name: 'Agent', input: { description: 'mock subagent', prompt, subagent_type: 'general-purpose' } }))
+      for (const [k, u] of uses.entries()) {
+        yield { kind: 'tool', index: k, id: `toolu_mock_${++ids}`, name: u.name }
+        yield { kind: 'input', index: k, json: JSON.stringify(u.input) }
+      }
+      yield { kind: 'stop', stopReason: 'tool_use', usage: null }
+      return { turnId: e.turnId, index: e.index, answer: '', toolUses: uses, stopReason: 'tool_use', usage: null }
+    }
     if (reply.bash !== undefined) {
       const input = { command: reply.bash, description: 'mock' }
-      yield { kind: 'tool', index: 0, id: `toolu_mock_${i}`, name: 'Bash' }
+      yield { kind: 'tool', index: 0, id: `toolu_mock_${++ids}`, name: 'Bash' }
       yield { kind: 'input', index: 0, json: JSON.stringify(input) }
       yield { kind: 'stop', stopReason: 'tool_use', usage: null }
       return { turnId: e.turnId, index: e.index, answer: '', toolUses: [{ name: 'Bash', input }], stopReason: 'tool_use', usage: null }

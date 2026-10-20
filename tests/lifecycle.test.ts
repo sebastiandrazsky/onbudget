@@ -73,9 +73,9 @@ describe('percentage budgets', () => {
     const answers = [31, 33, 34]
     w.reply = () => { w.readings = fiveHour(answers.shift()!); return { cost: 0.1 } }
     await step($)
-    expect((await tool($)).context).toEqual(['[budget] the 5-hour usage window has moved 0 of 3 points | remaining 100% | tier HIGH'])
+    expect((await tool($)).context).toEqual(['[budget] the 5-hour usage window has moved 0 of 3 points | left before the stop 3 points (100%) | tier HIGH'])
     await step($)
-    expect((await tool($)).context).toEqual(['[budget] the 5-hour usage window has moved 2 of 3 points | remaining 33% | tier MEDIUM'])
+    expect((await tool($)).context).toEqual(['[budget] the 5-hour usage window has moved 2 of 3 points | left before the stop 1 point (33%) | tier CRITICAL'])
     await step($) // sent: the reading that shows the third point arrives with its answer
     const refused = await step($)
     expect(w.requests.length).toBe(3)
@@ -102,16 +102,16 @@ describe('percentage budgets', () => {
     expect((await step($)).result.answer).toBe('ok')
     expect(w.requests.length).toBe(7)
   })
-  test('a full window stops an unconverted budget: its reading can no longer move', async ($, on) => {
+  test('a window at its wall stops an unconverted budget before the account\'s own limit would', async ($, on) => {
     const w = world(on)
     await start($)
     await run($, '30% 5h task')
     const answers = [98, 100]
     w.reply = () => { w.readings = fiveHour(answers.shift()!); return { cost: 0.5 } }
-    await step($); await step($)
+    await step($)
     const s = await step($)
-    expect(w.requests.length).toBe(2)
-    expect(s.result.answer).toContain('the 5-hour usage window is full')
+    expect(w.requests.length).toBe(1)
+    expect(s.result.answer).toContain("the account's 5-hour usage limit is close: the window is at 98% (resets 2026-10-08 22:10 UTC)")
   })
   test('with a calibration it is converted to dollars at the learned rate, which errs low', async ($, on) => {
     const w = world(on, { env: LOG, store: { [calKey('older-1')]: cal('five_hour', 19.4, 20), [calKey('older-2')]: cal('five_hour', 9.7, 10) } })
@@ -158,7 +158,7 @@ describe('percentage budgets', () => {
     const w = world(on)
     w.readings = fiveHour(96)
     await start($)
-    expect((await run($, '10% 5h task')).text).toContain('the window is already at 96%')
+    expect((await run($, '10% 5h task')).text).toContain("The account's 5-hour window is at 96%, so less is left in it than the budget: about 1 point before onbudget stops for it. The task runs against that.")
   })
   test('a budget set without a conversion keeps the rule it was set with; what the session learns serves the next one', async ($, on) => {
     const w = world(on)
@@ -167,7 +167,7 @@ describe('percentage budgets', () => {
     const answers = [30, 31, 33, 35]
     w.reply = () => { w.readings = fiveHour(answers.shift()!); return { cost: 1 } }
     for (let i = 0; i < 4; i++) { await step($); await measure($, w) }
-    expect((await tool($)).context[0]).toBe('[budget] the 5-hour usage window has moved 5 of 10 points | remaining 50% | tier MEDIUM')
+    expect((await tool($)).context[0]).toBe('[budget] the 5-hour usage window has moved 5 of 10 points | left before the stop 5 points (50%) | tier MEDIUM')
     const next = await run($, '10% 5h another task')
     expect(next.text).toContain('(10% of the 5-hour usage window) set')
     expect(next.text).toContain('learned from 5 points of movement')
@@ -240,14 +240,14 @@ describe('what a budget survives', () => {
     await start($)
     expect(w.status[w.status.length - 1]).toContain('spent $1.50 of $4.00')
     await step($)
-    expect((await tool($)).context).toEqual(['[budget] spent $1.70 of $4.00 | remaining 58% | tier MEDIUM'])
+    expect((await tool($)).context).toEqual(['[budget] spent $1.70 of $4.00 | left before the stop $2.10 (53%) | tier MEDIUM'])
   })
   test('a resumed session whose ledger starts over: nothing is counted twice or lost', async ($, on) => {
     const w = world(on, { store: { 'budget:session-1': saved() } })
     w.cost = 0
     await start($)
     await step($)
-    expect((await tool($)).context).toEqual(['[budget] spent $1.60 of $4.00 | remaining 60% | tier MEDIUM'])
+    expect((await tool($)).context).toEqual(['[budget] spent $1.60 of $4.00 | left before the stop $2.20 (55%) | tier MEDIUM'])
   })
   test('a stopped budget is still stopped after a resume', async ($, on) => {
     const stop = { event: 'reserve-stop', spent: 3.9, reserve: 0.2, budget: 4 }
@@ -314,7 +314,7 @@ describe('a process that moves to another session (/resume inside a session)', (
     w.reply = () => ({ cost: 0.1 })
     await step($, { effort: 'xhigh' })
     expect(w.requests[1].effort).toBe('xhigh') // session-2's budget keeps effort
-    expect((await tool($)).context).toEqual(['[budget] spent $0.60 of $9.00 | remaining 93% | tier HIGH'])
+    expect((await tool($)).context).toEqual(['[budget] spent $0.60 of $9.00 | left before the stop $8.30 (92%) | tier HIGH'])
     near((w.store.get('budget:session-1') as any).spent, 0.3)
     near((w.store.get('budget:session-2') as any).spent, 0.6)
   })
@@ -374,7 +374,7 @@ describe('percentage budgets across processes', () => {
     const answers = [90, 91]
     w.reply = () => { w.readings = fiveHour(answers.shift()!); return { cost: 0.1 } }
     await step($); await step($)
-    expect((await run($, '')).text).toContain('5-hour window: at 91%, moved 3 points since the budget started')
+    expect((await run($, '')).text).toContain('5-hour window under the budget: moved 3 points since the budget started')
   })
 })
 

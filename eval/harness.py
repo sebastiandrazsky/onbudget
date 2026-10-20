@@ -3,7 +3,8 @@
   python3 eval/harness.py rescore <run_id>      score a finished run's saved artifacts again (earlier values kept in score_history)
 
 Arms differ only in the prompt's budget paragraph and in the plugin that is loaded; model, effort, tools, prompt body, scoring and
-the external watchdog are the same. Launch flags mirror the lab's vharness.claude_cmd (no --max-budget-usd), with --effort medium."""
+the external watchdog are the same. Launch flags mirror the lab's vharness.claude_cmd (no --max-budget-usd), with --effort medium.
+Arm D, added in the second round, is the one exception: plain Claude Code under its own --max-budget-usd."""
 import os, re, shutil, signal, subprocess, sys, time
 import lib
 from lib import EVAL, ROOT, TASKS, EVAL_TASKS, jload, jdump
@@ -25,7 +26,10 @@ LOGGING_PLUGINS = ('capmod', 'onbudget')
 ARMS = {'A': dict(label='plain', plugins=('capmod',), budget_text=False),
         'A0': dict(label='plain, simple cap', plugins=('capmod',), budget_text=False, env=dict(CAP_RULE='simple')),   # added after the first results: see README
         'B': dict(label='prompt-only', plugins=('capmod',), budget_text=True),
-        'C': dict(label='onbudget', plugins=('onbudget',), budget_text=False)}
+        'C': dict(label='onbudget', plugins=('onbudget',), budget_text=False),
+        # Second round: plain Claude Code capped by its own --max-budget-usd. capmod only logs (CAP_RULE=off), for the watchdog's
+        # cost rule and the per-request accounting; it refuses nothing and changes nothing the model sees.
+        'D': dict(label='plain, --max-budget-usd', plugins=('capmod',), budget_text=False, env=dict(CAP_RULE='off'), max_budget=True)}
 LEVELS = {'TIGHT': dict(usd=4.20, raw='$4.20'), 'HARD': dict(usd=2.47, raw='$2.47'),      # frozen in the lab's v0/reference.json
           'PCT': dict(usd=3.88, raw='4% 5h')}                                              # 4 x the lab's $0.97 per 5h point; harness cap only
 STRIP_ENV = ('ONBUDGET', 'CAP_', 'MOCK_', 'WITHIN_')                                       # never inherited from the operator's shell
@@ -77,13 +81,13 @@ def single_prompt(arm, raw, task):
     return statement + ('\n\n' + budget_paragraph(raw) if ARMS[arm]['budget_text'] else '')
 
 
-def claude_cmd(plugin_dirs):
+def claude_cmd(plugin_dirs, max_budget=None):
     cmd = [CLAUDE, '-p', '--output-format', 'json']
     for d in plugin_dirs: cmd += ['--plugin-dir', d]
     cmd += ['--permission-mode', 'acceptEdits', '--setting-sources', 'project,local', '--strict-mcp-config', '--disable-slash-commands',
             '--allowedTools', ','.join(ALLOW), '--disallowedTools', 'WebFetch,WebSearch', '--model', MODEL, '--effort', EFFORT]
     assert not {'--max-budget-usd', '--no-session-persistence', '--continue', '--resume'} & set(cmd)
-    return cmd
+    return cmd + (['--max-budget-usd', f'{max_budget:.2f}'] if max_budget is not None else [])
 
 
 def run_env(run_dir, spec, ws, extra=None):
@@ -195,7 +199,7 @@ def run(spec, runs=RUNS, extra_plugins=(), extra_env=None, prompt_override=None,
     os.makedirs(rd); os.makedirs(work)
     for name in names: shutil.copytree(f'{TASKS}/{name}/base', f'{work}/{name}')
     prompt = prompt_override if prompt_override is not None else session_prompt(arm, spec['raw']) if mode == 'session' else single_prompt(arm, spec['raw'], names[0])
-    cmd = claude_cmd([PLUGINS[n] for n in plugin_names]); env, ours = run_env(rd, spec, work, extra_env)
+    cmd = claude_cmd([PLUGINS[n] for n in plugin_names], spec['usd'] if ARMS[arm].get('max_budget') else None); env, ours = run_env(rd, spec, work, extra_env)
     open(f'{rd}/prompt.txt', 'w').write(prompt); open(f'{rd}/cmd.txt', 'w').write(' '.join(cmd)); open(f'{rd}/shim.log', 'a').close()
     jdump(f'{rd}/env.json', dict(ours, PATH_prefix=SHIM, claude_version=claude_version(), claude_bin=CLAUDE, cwd=cwd, context_files=context))
     meta = dict(spec, names=names, plugins=plugin_names, cwd=cwd, started=time.strftime('%Y-%m-%dT%H:%M:%S'))
@@ -249,7 +253,8 @@ def finish(rid, runs=RUNS):
     for m in (_TIER_RE.search(str(x)) for x in injected):
         if m and (not tiers or tiers[-1] != m.group(1)): tiers.append(m.group(1))
     api_err = out.get('terminal_reason') == 'api_error' or (subtype == 'success' and out.get('is_error'))
-    stopped = bool(stops or stopfail); log_fault = str(killed or '').startswith(LOG_FAULT)
+    capped = subtype == 'error_max_budget_usd'                # arm D: Claude Code's own --max-budget-usd ended the session
+    stopped = bool(stops or stopfail or capped); log_fault = str(killed or '').startswith(LOG_FAULT)
     infra = str(killed or '').startswith(SUSPENDED) or ((not killed) and bool(api_err or not (subtype == 'success' or stopped) or (not cost and not stopped)))
     ended = 'killed' if killed else 'stopped' if stopped else 'self' if subtype == 'success' else 'error'
     void = []
@@ -257,7 +262,7 @@ def finish(rid, runs=RUNS):
     if log_fault: void.append(f'external kill, {killed}')
     if hookfail: void.append(f"fail-open hook failure logged ({hookfail[0].get('where')})")
     if stopfail: void.append('the stop check itself failed (failed closed)')
-    if tr['usd_budget_lines'] or tr['budget_usd_attachments']: void.append('transcript contains USD budget: / budget_usd')
+    if (tr['usd_budget_lines'] or tr['budget_usd_attachments']) and not ARMS[arm].get('max_budget'): void.append('transcript contains USD budget: / budget_usd')
     if not tr['transcript_files']: void.append('no usable transcript')
     if steps and effort_main != [EFFORT]: void.append(f'recorded main-thread effort {effort_main} differs from {EFFORT}')
     problem = budget_problem(spec, start, budget_row) if start else None
@@ -283,7 +288,7 @@ def finish(rid, runs=RUNS):
                cost=cost, cost_cli=cost_cli, cost_logged=cost_logged, cost_counted=(max(known + [budget + KILL_OVER] * log_fault) if known else budget + KILL_OVER),
                budget_enforced=enforced, cost_minus_budget=(None if None in (cost, enforced) else round(cost - enforced, 6)),
                within_budget=(None if None in (cost, enforced) else bool(cost <= enforced)),
-               ended=ended, stop_event=((stops[0].get('event') if stops else 'stopfail') if stopped else None), stop_events=len(stops), killed=killed,
+               ended=ended, stop_event=((stops[0].get('event') if stops else 'stopfail' if stopfail else 'max-budget-usd') if stopped else None), stop_events=len(stops), killed=killed,
                tasks_complete=sum(per[n]['complete'] for n in names), tasks_total=len(names), complete_list=[n for n in names if per[n]['complete']],
                complete=all(per[n]['complete'] for n in names), claimed=claimed, scored=scored, claim_lines=sum(1 for n in names if lines[n]), status_line=status,
                tasks_unclaimed=sum(1 for n in names if claimed[n] is None),

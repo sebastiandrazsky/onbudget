@@ -9,6 +9,9 @@
   python3 eval/queue.py retry <slot>                 release a slot without retries left, or a smoke slot whose run the watchdog killed
   nohup python3 eval/queue.py run > eval/queue.nohup 2>&1 &        unattended
 
+  ONBUDGET_EVAL_ROUND=2 python3 eval/queue.py ...    the second round (2026-10-20): arm C again, then arm D, in eval/r2/ with its
+                                                     own state, ledger, ceiling and runs; `run --phase r2` runs it
+
 Every attempt of every slot gets its own run directory and session; a slot with a usable run is never repeated."""
 import os, sys
 if __name__ == 'queue':                                # a standard-library module asked for `queue` while eval/ leads sys.path: give it the real one
@@ -19,7 +22,8 @@ import csv, datetime, glob, json, random, signal, socket, subprocess, time, trac
 import harness, lib, report
 from lib import jload, jdump, ceiling
 
-BASE = lib.EVAL                                    # state, logs and runs live here (the self-tests point it at a scratch directory)
+ROUND = os.environ.get('ONBUDGET_EVAL_ROUND', '1')
+BASE = lib.EVAL if ROUND == '1' else f'{lib.EVAL}/r2'   # state, logs and runs live here (the self-tests point it at a scratch directory)
 SEED = 20261008
 MAX_RETRIES = 2                                    # a slot whose run was void or failed is tried again at most twice
 H5_WAIT_AT, D7_STOP_AT, RESET_MARGIN = 80, 90, 90  # percent, percent, seconds
@@ -27,6 +31,11 @@ INFRA_BACKOFF_MIN = (10, 20)
 ECHO = True                                        # also print log lines (they land in queue.nohup)
 PHASES = ('smoke', 'main-tight', 'main-hard', 'pct', 'extra', 'simple-cap', 'hard-extra')   # the last two were added after the first results
 SELECT = {'smoke': PHASES[:1], 'main': PHASES[1:5], 'added': PHASES[5:], 'all': PHASES}
+if ROUND == '2':
+    # The second round re-runs arm C on the changed plugin (git tag eval-freeze-2), then plain Claude Code under its own
+    # --max-budget-usd. It relies on the first round's smoke phase; a C run over its budget or with a false claim stops it.
+    PHASES = ('r2-onbudget', 'r2-maxbudget')
+    SELECT = {'r2': PHASES}
 
 
 class Stop(RuntimeError):
@@ -60,6 +69,11 @@ def slots():
         return dict(id=f'{prefix or level.lower()}-{arm}-{i}', phase=phase, mode='session', arm=arm, level=level, **harness.LEVELS[level])
     def smoke(arm, task, usd):
         return dict(id=f'smoke-{arm}-{task}', phase='smoke', mode='single', arm=arm, level='SMOKE', task=task, usd=usd, raw=f'${usd:.2f}')
+    if ROUND == '2':
+        groups = {'r2-onbudget': [session('r2-onbudget', 'C', 'HARD', i, 'hard-r2') for i in (1, 2, 3)] + [session('r2-onbudget', 'C', 'TIGHT', i, 'tight-r2') for i in (1, 2)],
+                  'r2-maxbudget': [session('r2-maxbudget', 'D', 'HARD', i) for i in (1, 2)]}
+        rng = random.Random(SEED); rng.shuffle(groups['r2-onbudget'])
+        return groups['r2-onbudget'] + groups['r2-maxbudget']
     groups = {'smoke': [smoke('C', 'packaging', 0.46), smoke('C', 'tenacity', 0.28), smoke('A', 'tenacity', 0.28)],
               'main-tight': [session('main-tight', arm, 'TIGHT', i) for arm in 'ABC' for i in (1, 2)],
               'main-hard': [session('main-hard', arm, 'HARD', i) for arm in 'ABC' for i in (1, 2)],
@@ -301,7 +315,7 @@ def attempt(state, slot, runner):
 
 def work(state, phases, runner=harness.run, ready=wait_ready, sleep=time.sleep, now=time.time, version=harness.claude_version):
     """Run every pending slot of the selected phases that fits under the ceiling. Returns ('done' | 'stopped', reason)."""
-    ceil = ceiling(state.get('ceiling')); by_id = {s['id']: s for s in slots()}; smoke_ids = state['order']['smoke']
+    ceil = ceiling(state.get('ceiling')); by_id = {s['id']: s for s in slots()}; smoke_ids = state['order'].get('smoke', [])
     while True:
         rows = scores(); states = {sid: slot_state(sid, rows) for sid in by_id}
         state['exhausted'] = sorted(sid for sid, st in states.items() if st == 'exhausted'); save(state)
@@ -332,6 +346,9 @@ def work(state, phases, runner=harness.run, ready=wait_ready, sleep=time.sleep, 
         try: r = attempt(state, slot, runner)
         except (harness.PluginInvalid, Stop) as e: return end(state, 'stopped', str(e))
         if r.get('stop_queue'): return end(state, 'stopped', f"{r.get('run_id')}: {r['stop_queue']}. A retry would repeat this set-up fault, so nothing further was launched")
+        if ROUND == '2' and r.get('arm') == 'C' and report.usable(r) and (r.get('within_budget') is False or (r.get('false_claims') or 0) > 0):
+            return end(state, 'stopped', f"{r.get('run_id')}: onbudget {'went over its budget' if r.get('within_budget') is False else 'made a false completion claim'} "
+                                         f"(cost {r.get('cost')}, budget {r.get('budget_enforced')}, false claims {r.get('false_claims')}); stopped for the operator to report")
         failed = 1 + len(tries(slot['id'], rows))
         if r.get('void'):                                                 # a void run is excluded and its slot goes to the end of its phase
             order = state['order'][slot['phase']]; order.remove(slot['id']); order.append(slot['id']); save(state)

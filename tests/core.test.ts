@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'claude-code/testing'
 import {
   type Budget, type CalMark, type CalRecord, BOOTSTRAP_RESERVE_USD, DAY_MS, MAX_AGE_DAYS, NAME,
-  cappedEffort, extendCalibration, fold, meterLine, observeWindow, parseCommand, poolRate, protocol, refusalText, remaining, stepCostOf, stopCheck, stopLabel, tierOf,
+  binding, cappedEffort, extendCalibration, fold, meterLine, observeWalls, observeWindow, parseCommand, poolRate, protocol, refusalText, sizeRest, stepCostOf, stopCheck, stopLabel, tierOf,
 } from '../hooks/core.ts'
 
 const near = (got: number, want: number) => expect(Math.abs(got - want) < 1e-9 ? 'near' : `${got} is not ${want}`).toBe('near')
@@ -24,9 +24,11 @@ describe('the command', () => {
     expect(parseCommand('10% 5h Build this application')).toEqual({ kind: 'start', raw: '10% 5h', spec: { kind: 'pct', window: 'five_hour', points: 10 }, task: 'Build this application' })
     expect(parseCommand('5% week Fix these bugs')).toEqual({ kind: 'start', raw: '5% week', spec: { kind: 'pct', window: 'seven_day', points: 5 }, task: 'Fix these bugs' })
     expect(parseCommand('2.5%5H  two\nlines')).toEqual({ kind: 'start', raw: '2.5% 5h', spec: { kind: 'pct', window: 'five_hour', points: 2.5 }, task: 'two\nlines' })
+    expect(parseCommand('5h Build this application')).toEqual({ kind: 'start', raw: '5h', spec: { kind: 'rest', window: 'five_hour' }, task: 'Build this application' })
+    expect(parseCommand('WEEK fix it')).toEqual({ kind: 'start', raw: 'week', spec: { kind: 'rest', window: 'seven_day' }, task: 'fix it' })
   })
   test('what is not a budget is refused with the usage', () => {
-    for (const bad of ['banana split', '$0 x', '0% 5h x', '150% week x', '10% 4h x', '10% x', '3 dollars x', '$3', '10% 5h', '$3x do it', '-$3 x']) {
+    for (const bad of ['banana split', '$0 x', '0% 5h x', '150% week x', '10% 4h x', '10% x', '3 dollars x', '$3', '10% 5h', '$3x do it', '-$3 x', '5h', 'week', '5hours x', 'weekly x']) {
       const c = parseCommand(bad)
       expect(c.kind).toBe('error')
     }
@@ -38,14 +40,14 @@ describe('the meter', () => {
     expect([1, 0.7, 0.6999, 0.3, 0.2999, 0.1, 0.0999, 0].map(tierOf)).toEqual(['HIGH', 'HIGH', 'MEDIUM', 'MEDIUM', 'LOW', 'LOW', 'CRITICAL', 'CRITICAL'])
   })
   test('a dollar budget reads in dollars', () => {
-    expect(meterLine(usd({ spent: 1.234 }))).toBe('[budget] spent $1.23 of $4.00 | remaining 69% | tier MEDIUM')
-    expect(meterLine(usd({ spent: 9 }))).toBe('[budget] spent $9.00 of $4.00 | remaining 0% | tier CRITICAL')
+    expect(meterLine(usd({ spent: 1.234, maxStep: 0.1 }))).toBe('[budget] spent $1.23 of $4.00 | left before the stop $2.67 (67%) | tier MEDIUM')
+    expect(meterLine(usd({ spent: 9 }))).toBe('[budget] spent $9.00 of $4.00 | left before the stop $0.00 (0%) | tier CRITICAL')
   })
   test('a converted percentage budget reads in dollars and names the share', () => {
-    expect(meterLine(pct(4, { usd: 3.2, spent: 0.8 }))).toBe('[budget] spent $0.80 of $3.20 (4% of the 5-hour usage window) | remaining 75% | tier HIGH')
+    expect(meterLine(pct(4, { usd: 3.2, spent: 0.8, maxStep: 0.1 }))).toBe('[budget] spent $0.80 of $3.20 (4% of the 5-hour usage window) | left before the stop $2.30 (72%) | tier HIGH')
   })
   test('an unconverted percentage budget reads in points', () => {
-    expect(meterLine(pct(5, { window: { kind: 'five_hour', last: 40, moved: 2, blind: 0 } }))).toBe('[budget] the 5-hour usage window has moved 2 of 5 points | remaining 60% | tier MEDIUM')
+    expect(meterLine(pct(5, { window: { kind: 'five_hour', last: 40, moved: 2, blind: 0 } }))).toBe('[budget] the 5-hour usage window has moved 2 of 5 points | left before the stop 3 points (60%) | tier MEDIUM')
   })
   test('the protocol states the budget, demands verification and the status line', () => {
     const p = protocol('$4.20')
@@ -128,11 +130,7 @@ describe('the stop', () => {
     for (let i = 0; i < 5; i++) observeWindow(converted, [])
     expect(stopCheck(converted, 0)).toBeNull() // converted: dollars need no reading
   })
-  test('a full window cannot show what an unconverted budget uses, so it stops', () => {
-    const b = pct(40)
-    observeWindow(b, [{ kind: 'five_hour', percentUsed: 97 }])
-    observeWindow(b, [{ kind: 'five_hour', percentUsed: 100 }])
-    expect(stopCheck(b, 0)).toEqual({ event: 'window-full' })
+  test('a budget saved by an earlier build that stopped on a full window still reads', () => {
     expect(stopLabel({ event: 'window-full' })).toBe('the usage window is full')
   })
   test('the notice says who is speaking, what stopped it, and that the work is unverified', () => {
@@ -177,9 +175,9 @@ describe('the window', () => {
     observeWindow(b, [{ kind: 'five_hour', percentUsed: 24.4, resetsAt: '2026-10-08T22:10:00.000Z' }])
     near(b.window!.moved, 1)
   })
-  test('remaining follows whichever unit the budget is enforced in', () => {
-    near(remaining(pct(5, { window: { kind: 'five_hour', last: 44, moved: 4, blind: 0 } })), 0.2)
-    near(remaining(pct(5, { usd: 4, spent: 1, window: { kind: 'five_hour', last: 44, moved: 4, blind: 0 } })), 0.75)
+  test('what is left follows whichever unit the budget is enforced in', () => {
+    near(binding(pct(5, { window: { kind: 'five_hour', last: 44, moved: 4, blind: 0 } }), 0)!.left, 0.2)
+    near(binding(pct(5, { usd: 4, spent: 1, maxStep: 0.2, window: { kind: 'five_hour', last: 44, moved: 4, blind: 0 } }), 0)!.left, 0.7)
   })
 })
 
@@ -260,5 +258,89 @@ describe('effort', () => {
     expect(cappedEffort('xhigh', 'keep')).toBe('xhigh')
     expect(cappedEffort(undefined, 'medium')).toBe(undefined)
     expect(cappedEffort(32000, 'medium')).toBe(32000)
+  })
+})
+
+describe('where the stop is', () => {
+  test('with requests one at a time, each no dearer than the dearest before it, CRITICAL is read before at least two requests that are then sent', () => {
+    let seed = 11
+    const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647
+    for (let run = 0; run < 2000; run++) {
+      const budget = 0.2 + rand() * 6
+      const b = usd({ usd: budget, spec: { kind: 'usd', usd: budget } })
+      const first = rand() * budget / 10
+      let seen = false
+      let sentAfter = 0
+      for (let i = 0; ; i++) {
+        if (stopCheck(b, 0)) break
+        if (seen) sentAfter += 1
+        const cost = i === 0 ? first : rand() * b.maxStep
+        b.spent += cost
+        b.maxStep = Math.max(b.maxStep, cost)
+        if (binding(b, 0)!.tier === 'CRITICAL') seen = true // the meter line after this request's tool result
+      }
+      if (!(seen && sentAfter >= 2)) throw new Error(`budget ${budget}: CRITICAL seen ${seen}, ${sentAfter} requests sent after it`)
+    }
+  })
+  test('the meter reads 0 left exactly when the next request is refused', () => {
+    const b = usd({ usd: 1, maxStep: 0.2 })
+    b.spent = 0.79
+    expect(meterLine(b)).toContain('left before the stop $0.01 (1%)')
+    expect(stopCheck(b, 0)).toBeNull()
+    b.spent = 0.8
+    expect(meterLine(b)).toContain('left before the stop $0.00 (0%)')
+    expect(stopCheck(b, 0)?.event).toBe('reserve-stop')
+  })
+  test('the old meter read CRITICAL at $2.27 of $2.47, one request before the stop; this one from $1.97', () => {
+    const b = usd({ usd: 2.47, spec: { kind: 'usd', usd: 2.47 }, maxStep: 0.169, spent: 1.96 })
+    expect(binding(b, 0)!.tier).toBe('LOW')
+    b.spent = 1.97
+    expect(binding(b, 0)!.tier).toBe('CRITICAL')
+    b.spent = 2.32
+    expect(stopCheck(b, 0)?.event).toBe('reserve-stop')
+  })
+})
+
+describe('the account\'s windows as walls', () => {
+  const r = (kind: string, percentUsed: number, resetsAt = '2030-01-01T00:00:00.000Z') => ({ kind, percentUsed, resetsAt })
+  test('with a rate a window is a wall in dollars: the task\'s spend at which it would reach 99%', () => {
+    const b = usd({ usd: 10, spec: { kind: 'usd', usd: 10 }, maxStep: 0.5 })
+    observeWalls(b, [r('five_hour', 95)], 2, { five_hour: { usdPerPoint: 1, points: 9, intervals: 1, source: 'config' } }, 0)
+    b.spent = 2.5
+    // ceiling 2 + (99 - 95) x 1 = 6; held back 0.5: 3 left
+    expect(meterLine(b)).toBe("[budget] spent $2.50 of $10.00 | left before the stop $3.00 (50%), set by the account's 5-hour limit | tier MEDIUM")
+    b.spent = 5.5
+    expect(stopCheck(b, 0)).toEqual({ event: 'wall-stop', window: 'five_hour', percent: 95, resetsAt: '2030-01-01T00:00:00.000Z', inFlight: 0 })
+  })
+  test('without one, in points: a point for the request the reading may lag, one for each in flight and one for the next', () => {
+    const b = usd({ usd: 100 })
+    observeWalls(b, [r('seven_day', 96)], 0, {}, 0)
+    expect(stopCheck(b, 0)).toBeNull()
+    expect(stopCheck(b, 1)?.event).toBe('wall-stop')
+    observeWalls(b, [r('seven_day', 97)], 0, {}, 0)
+    expect(stopCheck(b, 0)).toEqual({ event: 'wall-stop', window: 'seven_day', percent: 97, resetsAt: '2030-01-01T00:00:00.000Z', inFlight: 0 })
+  })
+  test('a bigger step between two readings is reckoned as one request\'s, except from a reading taken before the budget', () => {
+    const b = usd({ usd: 100 })
+    observeWalls(b, [r('five_hour', 50)], 0, {}, 0, true)
+    observeWalls(b, [r('five_hour', 80)], 0, {}, 0) // others used the window while the session sat idle
+    expect(b.walls!.five_hour!.stepPts).toBe(1)
+    observeWalls(b, [r('five_hour', 83)], 0, {}, 0)
+    expect(b.walls!.five_hour!.stepPts).toBe(3)
+  })
+  test('a reading whose window has reset is not a wall, and a wall whose window has reset is dropped', () => {
+    const b = usd({ usd: 100 })
+    observeWalls(b, [r('five_hour', 98, '2020-01-01T00:00:00.000Z')], 0, {}, Date.parse('2021-01-01'))
+    expect(b.walls?.five_hour).toBeUndefined()
+  })
+  test('5h and week are sized from a reading: dollars with a rate, the window\'s own points without', () => {
+    const rest = (over: Partial<Budget> = {}) => usd({ raw: '5h', spec: { kind: 'rest', window: 'five_hour' }, usd: null, pending: true, window: { kind: 'five_hour', last: null, moved: 0, blind: 0 }, ...over })
+    const a = rest()
+    sizeRest(a, r('five_hour', 39), { usdPerPoint: 0.5, points: 9, intervals: 1, source: 'learned' }, 1)
+    expect([a.usd, a.pending, a.allowance]).toEqual([31, false, undefined])
+    const p = rest()
+    sizeRest(p, r('five_hour', 39), null, 1)
+    expect([p.usd, p.allowance, p.window!.last]).toEqual([null, 60, 39])
+    expect(meterLine(p)).toBe('[budget] the 5-hour usage window has moved 0 of 60 points | left before the stop 60 points (100%) | tier HIGH')
   })
 })

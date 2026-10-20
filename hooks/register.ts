@@ -3,8 +3,9 @@
 // Everything this module does:
 //   reads    the session's cost ledger and rate-limit readings, its id and model, the environment variables
 //            ONBUDGET, ONBUDGET_EFFORT and ONBUDGET_LOG, and its own store;
-//   writes   its own store (each session's budget; calibration records of dollars spent and points moved),
-//            its status line, and, only when ONBUDGET_LOG names a file, an event log there;
+//   writes   its own store (each session's budget; calibration records of dollars spent and points moved; the
+//            last reading of each usage window), its status line, and, only when ONBUDGET_LOG names a file, an
+//            event log there;
 //   changes  only while a budget is set: the effort of each model request (lowered to the cap, never raised),
 //            one line of context after each tool result and with each later prompt, and the refusal of requests
 //            the budget cannot cover.
@@ -13,20 +14,21 @@
 import type { EngineInterface, PromptOrigin, Register, SessionUsage, TurnStepInput, TurnStepResult } from 'claude-code'
 import {
   type Budget, type CalMark, type CalRecord, type Effort, type Rate, type Reading, type WindowKind,
-  BOOTSTRAP_RESERVE_USD, DAY_MS, MAX_AGE_DAYS, MIN_OBSERVED_POINTS, NAME,
-  cappedEffort, extendCalibration, failClosedText, fold, isEffortCap, meterLine, money, observeWindow, parseCommand, poolRate,
-  protocol, refusalText, reminder, reserveOf, round4, shown, statusText, stepCostOf, stopCheck, stopLabel, stoppedText, windowName,
+  BOOTSTRAP_RESERVE_USD, DAY_MS, MAX_AGE_DAYS, MIN_OBSERVED_POINTS, NAME, WALL_AT, WINDOWS,
+  binding, cappedEffort, dropStaleWalls, plural, extendCalibration, failClosedText, fold, isEffortCap, isStale, meterLine, money, observeWalls, observeWindow,
+  parseCommand, poolRate, protocol, refusalText, reminder, reserveOf, resetsText, round4, shown, sizeRest, statusText, stepCostOf, stopCheck, stopLabel,
+  stoppedText, trim, windowName,
 } from './core.ts'
 
 type Engine = EngineInterface
-const WINDOWS: readonly WindowKind[] = ['five_hour', 'seven_day']
 const TYPED = new RegExp(`^\\s*/${NAME}(?:\\s+([\\s\\S]*))?$`) // the command arriving as prompt text (slash commands off, SDK hosts)
 const OWN_NAME = new RegExp(`^${NAME}: `)
 const LOG_CHUNK = 200
 
 // Session state. The store is the record: a reload, a resumed session or a switch to another session reads it back.
-// Store keys: budget:<session>, env:<session> (ONBUDGET was used or cancelled there), and
-// cal:<window>:<day>:<session>:<model> (one calibration record; the day lets old ones be deleted unread).
+// Store keys: budget:<session>, env:<session> (ONBUDGET was used or cancelled there),
+// cal:<window>:<day>:<session>:<model> (one calibration record; the day lets old ones be deleted unread), and
+// seen:<window> (the newest reading of that window on this machine, for a budget set before a session has its own).
 let boot: Promise<void> | null = null
 let sid = ''
 let budget: Budget | null = null
@@ -42,6 +44,8 @@ const calRecs = new Map<string, CalRecord>() // this process's calibration recor
 let calMarks: Partial<Record<WindowKind, CalMark & { model: string }>> = {}
 let calDay = 0
 let others: CalRecord[] | null = null
+const seenMark: Partial<Record<WindowKind, string>> = {}
+let interactive = false
 let logPath: string | undefined
 let logRows: string[] = []
 let logChunk = 0
@@ -103,6 +107,7 @@ async function load($: Engine): Promise<void> {
     // A converted budget uses the window only as a backstop on what happens while it runs, so it starts a new
     // baseline. An unconverted one counts the window's movement whoever caused it, so its baseline is kept.
     if (budget.window && budget.usd !== null) { budget.window.last = null; budget.window.blind = 0 }
+    dropStaleWalls(budget, now)
   }
   switched = false
 }
@@ -158,7 +163,7 @@ function showStatus($: Engine): void {
     // The engine shows the line under the plugin's name, so the text does not repeat it.
     if (!budget) $.ui.status(undefined)
     else if (budget.state === 'stopped') $.ui.status(`stopped at ${money(budget.spent)} of ${shown(budget)}: ${stopLabel(budget.stop)} · /${NAME} off to continue`)
-    else $.ui.status(meterLine(budget).replace('[budget] ', ''))
+    else $.ui.status(meterLine(budget, inFlight).replace('[budget] ', ''))
   } catch { /* a host with no status line */ }
 }
 
@@ -218,6 +223,37 @@ async function saveCalibration($: Engine, keys: readonly string[]): Promise<void
   }
 }
 
+/** The rates the walls convert with, per window: the same as a percentage budget would use. */
+async function wallRates($: Engine): Promise<Record<WindowKind, Rate | null>> {
+  return { five_hour: await rateFor($, 'five_hour'), seven_day: await rateFor($, 'seven_day') }
+}
+
+/** Keeps the newest reading of each window in the store when it changes, for a budget set before a session has one. */
+async function noteSeen($: Engine, readings: readonly Reading[]): Promise<void> {
+  for (const kind of WINDOWS) {
+    const r = readings.find(x => x.kind === kind)
+    if (!r || !Number.isFinite(r.percentUsed) || typeof r.resetsAt !== 'string') continue
+    const mark = `${r.percentUsed}|${r.resetsAt}`
+    if (seenMark[kind] === mark) continue
+    seenMark[kind] = mark
+    await $.store.set(`seen:${kind}`, { percentUsed: r.percentUsed, resetsAt: r.resetsAt, at: await $.clock.now() })
+  }
+}
+
+/** The readings a new budget starts from: the session's own where they are current, else the newest seen on this machine. */
+async function startReadings($: Engine, usage: SessionUsage, now: number): Promise<{ live: Reading[]; known: Reading[] }> {
+  const live = usage.rateLimits.filter(r => (WINDOWS as readonly string[]).includes(r.kind) && Number.isFinite(r.percentUsed) && !isStale(r, now))
+  const known = [...live]
+  for (const kind of WINDOWS) {
+    if (live.some(r => r.kind === kind)) continue
+    const v = await $.store.get(`seen:${kind}`).catch(() => undefined)
+    if (isRecord(v) && typeof v.percentUsed === 'number' && typeof v.resetsAt === 'string' && !isStale({ kind, percentUsed: v.percentUsed, resetsAt: v.resetsAt }, now)) {
+      known.push({ kind, percentUsed: v.percentUsed, resetsAt: v.resetsAt })
+    }
+  }
+  return { live, known }
+}
+
 /** Marks ONBUDGET as dealt with for this session, so that a reload does not arm it again. */
 async function retireEnv($: Engine): Promise<void> {
   envBudget = undefined
@@ -234,7 +270,7 @@ async function command($: Engine, args: string): Promise<{ say: string; prompt?:
   if (c.kind === 'status') {
     await refresh()
     const pending = !budget && envBudget ? `\n  pending: ONBUDGET=${envBudget} applies to the next prompt (/${NAME} off cancels it)` : ''
-    return { say: statusText(budget, { five_hour: await rateFor($, 'five_hour'), seven_day: await rateFor($, 'seven_day') }) + pending }
+    return { say: statusText(budget, await wallRates($), inFlight) + pending }
   }
   if (c.kind === 'off') {
     if (!budget) {
@@ -253,35 +289,82 @@ async function command($: Engine, args: string): Promise<{ say: string; prompt?:
 
   let usd: number | null = null
   let rate: Rate | null = null
+  let allowance: number | undefined
+  let pending = false
+  let restAt: Reading | undefined // `5h`/`week` counted in points: the reading it was sized from, its baseline
   const notes: string[] = []
-  if (c.spec.kind === 'usd') usd = c.spec.usd
-  else {
-    const kind = c.spec.window
-    rate = await rateFor($, kind)
+  const startedAt = await $.clock.now()
+  const rates = await wallRates($)
+  const { live, known } = await startReadings($, await $.session.usage(), startedAt)
+  const spec = c.spec
+  if (spec.kind === 'usd') usd = spec.usd
+  else if (spec.kind === 'pct') {
+    const kind = spec.window
+    rate = rates[kind]
     if (rate) {
-      usd = round4(c.spec.points * rate.usdPerPoint)
+      usd = round4(spec.points * rate.usdPerPoint)
       notes.push(`Converted at 1 point ≈ ${money(rate.usdPerPoint)} (${rate.source === 'config' ? 'your setting' : `learned from ${Math.round(rate.points)} points of movement seen on this machine; it errs low, so the budget errs small`}).`)
-    } else if (c.spec.points < MIN_OBSERVED_POINTS) {
+    } else if (spec.points < MIN_OBSERVED_POINTS) {
       return { say: `${NAME}: cannot enforce ${c.raw} yet. The ${windowName(kind)} window is reported in whole points for the whole account, and ${NAME} has not yet seen enough usage to convert a point into dollars. Until it has, the smallest percentage budget is ${MIN_OBSERVED_POINTS}%; a dollar budget works now.` }
     } else {
-      notes.push(`No conversion to dollars is known yet, so the budget is enforced on the window's own reading: whole points, account-wide. It stops when the window has moved ${c.spec.points} points, whoever used them, and can be off by a point or by one request.`)
+      notes.push(`No conversion to dollars is known yet, so the budget is enforced on the window's own reading: whole points, account-wide. It stops when the window has moved ${spec.points} points, whoever used them, and can be off by a point or by one request.`)
+    }
+  } else {
+    // `5h` or `week`: what the window has left below the wall, read now when the session has a current reading.
+    const kind = spec.window
+    const r = live.find(x => x.kind === kind)
+    if (!r) {
+      pending = true
+      const seen = known.find(x => x.kind === kind)
+      notes.push(`This session has no current reading of the ${windowName(kind)} window yet${seen ? ` (it was at ${trim(seen.percentUsed)}% when last seen on this machine)` : ''}. The budget is sized from the first reading, which arrives with Claude's first answer.`)
+    } else {
+      const points = Math.max(0, WALL_AT - r.percentUsed)
+      rate = rates[kind]
+      if (rate) {
+        usd = round4(points * rate.usdPerPoint)
+        notes.push(`The window is at ${trim(r.percentUsed)}%: ${trim(points)} points are left below ${WALL_AT}%, about ${money(usd)} at 1 point ≈ ${money(rate.usdPerPoint)} (${rate.source === 'config' ? 'your setting' : 'learned on this machine; it errs low'}).`)
+      } else {
+        allowance = points
+        restAt = r
+        notes.push(`The window is at ${trim(r.percentUsed)}% and no conversion to dollars is known yet, so the budget is the window's own reading: it stops when the window has moved ${trim(points)} points, whoever used them, or a little before.`)
+      }
     }
   }
-  if (usd !== null && usd <= BOOTSTRAP_RESERVE_USD) return { say: `${NAME}: ${shown({ spec: c.spec, usd })} is too small to send a single request under (a ${money(BOOTSTRAP_RESERVE_USD)} reserve is held back). Nothing was sent.` }
+  if (usd !== null && usd <= BOOTSTRAP_RESERVE_USD && spec.kind !== 'rest') return { say: `${NAME}: ${shown({ spec, usd })} is too small to send a single request under (a ${money(BOOTSTRAP_RESERVE_USD)} reserve is held back). Nothing was sent.` }
 
-  const startedAt = await $.clock.now()
-  const task = c.task.split('\n')[0].slice(0, 120)
-  const spec = c.spec
+  // The account's windows as walls, from the readings at hand; a window with nothing left refuses the budget.
+  const fresh = (): Budget => ({
+    v: 1, raw: c.raw, spec, task: c.task.split('\n')[0].slice(0, 120), usd, rate, allowance, pending: pending || undefined,
+    spent: 0, ledger: 0, maxStep: 0, steps: 0, refused: 0, state: 'active',
+    window: spec.kind === 'usd' ? undefined : { kind: spec.window, last: restAt?.percentUsed ?? null, resetsAt: restAt?.resetsAt, moved: 0, blind: 0 },
+    effortCap, remind: false, startedAt,
+  })
+  const probe = fresh()
+  observeWalls(probe, known, 0, rates, startedAt, true)
+  const blocked = stopCheck(probe, 0)
+  if (blocked && (blocked.event === 'wall-stop' || spec.kind === 'rest')) {
+    const kind = blocked.event === 'wall-stop' ? blocked.window : (spec as { window: WindowKind }).window
+    const r = known.find(x => x.kind === kind)
+    return { say: `${NAME}: the ${windowName(kind)} usage window is at ${trim(r?.percentUsed ?? WALL_AT)}%${resetsText(r?.resetsAt)}, so nothing is left to run a budget on before it resets. Nothing was sent.` }
+  }
+  const first = binding(probe, 0)
+  if (first && first.by !== 'budget' && !(spec.kind === 'rest' && spec.window === first.by)) {
+    const w = probe.walls![first.by]!
+    notes.push(`The account's ${windowName(first.by)} window is at ${trim(w.last)}%, so less is left in it than the budget: about ${first.unit === 'usd' ? money(Math.max(0, first.room)) : plural(Math.max(0, first.room), 'point')} before ${NAME} stops for it. The task runs against that.`)
+  } else {
+    for (const kind of WINDOWS) {
+      const w = probe.walls?.[kind]
+      if (w && !w.rate && w.last >= 90) notes.push(`The account's ${windowName(kind)} window is at ${trim(w.last)}% and no conversion to dollars is known for it: ${NAME} stops for it at about ${WALL_AT - 2}%, which may come before the budget is spent.`)
+    }
+  }
+
   const prev = budget
   const prevMark = stepMark
   // The old budget's last reading and the new budget's first are one queued read, so nothing spent in between
   // is counted twice or lost.
   const { closed, usage } = await sync($, (ledger, usage) => {
     const closed = prev ? spendOf(prev) : undefined
-    budget = {
-      v: 1, raw: c.raw, spec, task, usd, rate, spent: 0, ledger, maxStep: 0, steps: 0, refused: 0, state: 'active',
-      window: spec.kind === 'pct' ? { kind: spec.window, last: null, moved: 0, blind: 0 } : undefined, effortCap, remind: false, startedAt,
-    }
+    budget = { ...fresh(), ledger, walls: probe.walls }
     stepMark = ledger
     return { closed, usage }
   })
@@ -295,10 +378,8 @@ async function command($: Engine, args: string): Promise<{ say: string; prompt?:
     throw err
   }
   showStatus($)
-  await log($, 'budget', { raw: c.raw, spec, usd, rate, effortCap, task, base: b.ledger, replaced: closed ?? null })
+  await log($, 'budget', { raw: c.raw, spec, usd, rate, allowance: allowance ?? null, pending, walls: b.walls ?? null, effortCap, task: b.task, base: b.ledger, replaced: closed ?? null })
   if (closed) notes.unshift(`The previous budget was closed (${closed}).`)
-  const reading = spec.kind === 'pct' ? usage.rateLimits.find(r => r.kind === spec.window) : undefined
-  if (reading && spec.kind === 'pct' && spec.points > 100 - reading.percentUsed) notes.push(`Note: the window is already at ${reading.percentUsed}%, so less than the budget is left before the account's own limit.`)
   if ((usage.context?.tokens ?? 0) > 100_000) notes.push('Note: this session already holds a large conversation; if it has been idle, the first request re-reads all of it and can be costly.')
   if (effortCap !== 'keep') notes.push(`Effort is capped at ${effortCap} while the budget is set.`)
   return {
@@ -339,8 +420,9 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     try {
       // The name is written out here and in the command.run matcher below (the engine reads both as literals); core.ts has NAME.
-      await $.command.register({ name: 'onbudget', description: 'Run a task under a usage budget', argumentHint: '<$X | N% 5h | N% week> <task> · off' })
+      await $.command.register({ name: 'onbudget', description: 'Run a task under a usage budget', argumentHint: '<$X | N% 5h | N% week | 5h | week> <task> · off' })
     } catch (err) { await log($, 'hookfail', { where: 'command.register', error: errText(err) }) }
+    interactive = e.isInteractive === true
     try {
       await ready($)
       showStatus($)
@@ -388,7 +470,7 @@ export const register: Register = (on, options) => {
       } else if (budget?.state === 'active' && person) {
         const b = budget
         await sync($)
-        const note = `${meterLine(b)}\nThe budget set earlier for this task still applies to this message.` + (b.remind ? `\n${reminder(b)}` : '')
+        const note = `${meterLine(b, inFlight)}\nThe budget set earlier for this task still applies to this message.` + (b.remind ? `\n${reminder(b)}` : '')
         b.remind = false
         ev = { ...e, context: [...(e.context ?? []), note] }
       }
@@ -425,32 +507,50 @@ export const register: Register = (on, options) => {
     }
     const effort = cappedEffort(e.effort, b.effortCap)
     const ev = effort === e.effort ? e : { ...e, effort }
+    const beside = inFlight
     sent.add(stepKey(e))
     inFlight += 1
     let r: TurnStepResult
     try { r = yield* next(ev) } finally { inFlight -= 1 }
     try {
       const model = await calModel($).catch(() => '')
+      const now = await $.clock.now()
+      const rates = await wallRates($)
+      // A converted budget's own window keeps the rate it was converted with when none is learned now.
+      if (b.rate && b.spec.kind !== 'usd' && !rates[b.spec.window]) rates[b.spec.window] = b.rate
+      const sizing = b.pending === true
       const { ledger, usage, stepCost, grew } = await sync($, (ledger, usage) => {
         const stepCost = stepCostOf(ledger, stepMark, sentAt)
         stepMark = ledger
         if (budget === b) {
           if (stepCost > b.maxStep) b.maxStep = stepCost
           b.steps += 1
-          if (r?.stopReason != null) observeWindow(b, usage.rateLimits) // the reading that came with this answer
+          if (r?.stopReason != null) {
+            // The readings that came with this answer: the budget's own window, and every window as a wall.
+            const before = b.spent - stepCost
+            const own = b.pending && b.window ? usage.rateLimits.find(x => x.kind === b.window!.kind) : undefined
+            if (own && Number.isFinite(own.percentUsed) && !isStale(own, now)) sizeRest(b, own, rates[b.window!.kind], before)
+            observeWindow(b, usage.rateLimits)
+            observeWalls(b, usage.rateLimits, before, rates, now)
+          }
         }
         return { ledger, usage, stepCost, grew: noteCalibration(usage.rateLimits, ledger, model) }
       })
       if (budget === b) {
         await save($)
         showStatus($)
+        if (sizing && !b.pending) await log($, 'sized', { usd: b.usd, rate: b.rate, allowance: b.allowance ?? null, spent: b.spent })
+        const status = e.agentId === undefined && r?.stopReason === 'end_turn' ? /STATUS:\s*\**\s*(COMPLETE|INCOMPLETE)/.exec(r.answer ?? '') : null
+        if (status && interactive) say($, `${NAME}: Claude ended the task with STATUS: ${status[1]}, at ${money(b.spent)} of ${shown(b)}. The budget is still open: a follow-up prompt draws on it, and /${NAME} off removes it.`)
       }
       await log($, 'step', {
         agentId: e.agentId ?? null, index: e.index, model: r?.usage?.model ?? e.model, effort: ev.effort ?? null, callerEffort: e.effort ?? null,
         stopReason: r?.stopReason ?? null, usage: r?.usage ?? null, tools: (r?.toolUses ?? []).map(t => t.name), costUsd: ledger, rateLimits: usage.rateLimits,
-        spent: b.spent, reserve: reserveOf(b), stepCost, maxStep: b.maxStep, inFlight, budget: b.usd, window: b.window ?? null,
+        spent: b.spent, reserve: reserveOf(b), stepCost, maxStep: b.maxStep, inFlight, beside, budget: b.usd, window: b.window ?? null,
+        walls: b.walls ?? null, binding: binding(b, inFlight),
       })
       await saveCalibration($, grew)
+      await noteSeen($, usage.rateLimits)
     } catch (err) { await log($, 'hookfail', { where: 'step.after', error: errText(err) }) }
     sent.delete(stepKey(e))
     return r
@@ -470,11 +570,11 @@ export const register: Register = (on, options) => {
       const b = budget
       if (!b || b.state !== 'active' || !r || r.deny !== undefined) return r
       await sync($)
-      const line = meterLine(b)
+      const line = meterLine(b, inFlight)
       const reminded = b.remind && e.agentId === undefined
       const lines = reminded ? [reminder(b), line] : [line]
       if (reminded) b.remind = false
-      await log($, 'tool', { tool: e.tool, agentId: e.agentId ?? null, isError: r.isError ?? false, injected: line, reminded })
+      await log($, 'tool', { tool: e.tool, agentId: e.agentId ?? null, isError: r.isError ?? false, injected: line, inFlight, reminded })
       return { ...r, context: [...(r.context ?? []), ...lines] }
     } catch (err) {
       await log($, 'hookfail', { where: 'tool.call', error: errText(err) })
@@ -487,7 +587,9 @@ export const register: Register = (on, options) => {
     try {
       await ready($)
       const model = await calModel($)
-      await saveCalibration($, await sync($, (ledger, usage) => noteCalibration(usage.rateLimits, ledger, model)))
+      const { grew, readings } = await sync($, (ledger, usage) => ({ grew: noteCalibration(usage.rateLimits, ledger, model), readings: usage.rateLimits }))
+      await saveCalibration($, grew)
+      await noteSeen($, readings)
       if (budget) { await save($); showStatus($) }
       await log($, 'measure', { rateLimits: e.rateLimits, cost: e.cost ?? null, context: e.context, changed: e.changed, spent: budget?.spent ?? null })
     } catch (err) { await log($, 'hookfail', { where: 'session.measure', error: errText(err) }) }

@@ -60,6 +60,37 @@ One scoring run was repeated by hand: in `hard-C-2-a0` both scoring attempts for
 watchdog and returned no results (the lab hit the same stall once). `python3 eval/harness.py rescore hard-C-2-a0` scored the
 saved tree again: falcon 25/25 hidden, 4148/4148 existing. The first values are kept under `score_history` in its `score.json`.
 
+## Second round (2026-10-20)
+
+After an independent audit the meter, the stop and the account's usage windows were changed (see `CHANGELOG.md` and the
+addendum to `REPORT.md`). The changed plugin was frozen as git tag `eval-freeze-2` and arm C was run again. Everything
+for this round lives in `eval/r2/`: its own `state.json` (ledger and ceiling), `queue.log`, `results.csv`, `report.txt`
+and `runs/`. The first round's files above are untouched.
+
+    ONBUDGET_EVAL_ROUND=2 ONBUDGET_EVAL_CEILING=25 ONBUDGET_CLAUDE_BIN=~/.local/share/claude/versions/2.1.289 \
+      nohup python3 eval/queue.py run --phase r2 > eval/r2/queue.nohup 2>&1 &
+
+| Phase | Slots |
+| --- | --- |
+| r2-onbudget | C x3 at HARD, C x2 at TIGHT (seeded shuffle) |
+| r2-maxbudget | D x2 at HARD, only while the ceiling allows |
+
+Arm D is plain Claude Code under its own cap: the arm A prompt, no budget paragraph, and `--max-budget-usd 2.47` on the
+launch line. It loads `eval/capmod` with `CAP_RULE=off`, which refuses nothing and changes nothing the model sees; it
+only logs each request's cost, so that the watchdog's cost rule and the per-request accounting work as in the other
+arms. Claude Code tells the model about a `--max-budget-usd` cap, so the "USD budget:" void rule does not apply to
+arm D, and a session that Claude Code ends with `error_max_budget_usd` counts as stopped, not as an infrastructure
+failure.
+
+The same rails apply as in the first round, with a ceiling of $25 at list price, the same model, effort, tasks, prompt
+body and CLI (2.1.289, pinned with `ONBUDGET_CLAUDE_BIN`). There is no smoke phase: the first round's smoke runs and
+this round's zero-cost suites stand for it. One rule is new: a usable arm C run that ends over its budget, or claims a
+task it did not finish, stops the queue for the operator to report.
+
+`~/CLAUDE.md` (a one-line pointer to a writing-style skill) sits above the work directory, so Claude Code had it in
+context in every run of both rounds; `env.json` records it under `context_files`. It was left in place in the second
+round so that its runs stay comparable with the first.
+
 ## Interactive sessions with the real model
 
 `python3 eval/interactive_smoke.py` is outside the queue and its ledger. It drives one real terminal session with the real

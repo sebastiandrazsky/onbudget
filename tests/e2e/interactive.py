@@ -34,7 +34,7 @@ class Session:
         self.log_path = os.path.join(self.dir, 'onbudget.jsonl'); self.mock_path = os.path.join(self.dir, 'mock.json')
         script_path = os.path.join(self.dir, 'script.json'); json.dump(script, open(script_path, 'w'))
         env = {k: v for k, v in os.environ.items() if not (k.startswith('CLAUDE') or k.startswith('ANTHROPIC_'))}
-        env.update(CLAUDE_CODE_ENABLE_FUNCTION_HOOKS='1', ANTHROPIC_BASE_URL='http://127.0.0.1:9', CLAUDE_CODE_MAX_RETRIES='0', DISABLE_TELEMETRY='1',
+        env.update(ANTHROPIC_BASE_URL='http://127.0.0.1:9', CLAUDE_CODE_MAX_RETRIES='0', DISABLE_TELEMETRY='1',
                    DISABLE_AUTOUPDATER='1', TERM='xterm-256color', COLUMNS='160', LINES='50',
                    MOCK_SCRIPT=script_path, MOCK_LOG=self.mock_path, ONBUDGET_LOG=self.log_path)
         cmd = [CLAUDE, '--plugin-dir', REPO, '--plugin-dir', MOCK, '--permission-mode', 'acceptEdits', '--setting-sources', 'project,local',
@@ -73,6 +73,10 @@ class Session:
 
     def mark(self):
         self.buf = b''
+
+    def clear_input(self):
+        """Claude Code 2.1.299 puts a prompt that a hook turned away back into the input box: clear it (Ctrl-U) before typing on."""
+        os.write(self.fd, b'\x15'); self.pump(0.5)
 
     def type(self, text, enter=True):
         for ch in text:
@@ -130,12 +134,13 @@ def main_session():
     check('interactive: three requests are sent at the capped effort, each tool result gets a meter line',
           [x['effort'] for x in s.mock('step')] == ['medium'] * 3 and [t['injected'].split('|')[0].strip() for t in s.rows('tool')] == ['[budget] spent $0.30 of $1.00', '[budget] spent $0.60 of $1.00', '[budget] spent $0.90 of $1.00'],
           f"{s.mock('step')} {s.rows('tool')}")
-    check('interactive: the fourth request is refused and the notice is on screen', ok and len(s.mock('step')) == 3 and s.shows('[onbudget] Stopped: $0.90 of $1.00 is used'), s.screen()[-600:])
-    check('interactive: the status line shows the spent budget', s.shows('onbudget: stopped at $0.90 of $1.00') and not s.shows('onbudget: onbudget:'), s.screen()[-600:])
+    check('interactive: the fourth request is refused and the notice is on screen', ok and len(s.mock('step')) == 3 and s.wait(lambda: s.shows('[onbudget] Stopped: $0.90 of $1.00 is used'), 10), s.screen()[-600:])
+    check('interactive: the status line shows the spent budget', s.wait(lambda: s.shows('onbudget: stopped at $0.90 of $1.00'), 10) and not s.shows('onbudget: onbudget:'), s.screen()[-600:])
 
     s.mark(); s.type('continue please')
     check('interactive: a follow-up prompt on a stopped budget is turned away with the reason, and no request is made',
           s.wait(lambda: s.shows('the budget has stopped this session'), 20) and len(s.rows('stop')) == 1 and len(s.mock('step')) == 3 and len(s.mock('request')) == 3, s.screen()[-500:])
+    s.clear_input()
 
     s.mark(); s.type('/onbudget')
     check('interactive: /onbudget shows the stopped budget', s.wait(lambda: s.shows('STOPPED') and s.shows('$0.90 of $1.00 spent'), 10), s.screen()[-500:])

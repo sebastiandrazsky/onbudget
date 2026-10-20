@@ -1,0 +1,26 @@
+# Validates the plugin and runs its in-engine tests against the Claude Code release current at the time of the run:
+# on every push and pull request, and weekly, so that a release that changes the mods API shows up here first.
+# UNTESTED: written before the repository was first pushed; it has never run on GitHub.
+name: plugin
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: '17 6 * * 1' # Mondays, 06:17 UTC
+  workflow_dispatch:
+jobs:
+  validate-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the current Claude Code
+        run: |
+          curl -fsSL https://claude.ai/install.sh | bash
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - run: claude --version
+      - name: Validate (the plugin manifest, then the marketplace manifest and hooks)
+        run: |
+          claude plugin validate --strict .claude-plugin/plugin.json
+          claude plugin validate --strict .
+      - name: In-engine tests (no model requests)
+        run: claude plugin test .

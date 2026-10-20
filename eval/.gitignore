@@ -9,3 +9,12 @@ queue.lock
 queue.lock.*
 PAUSED.json
 __pycache__/
+# the second round (eval/r2): the same rules
+r2/runs/*/ws/
+r2/runs/*/transcript/
+r2/runs/*/transcript.part/
+r2/tmp/
+r2/*.nohup
+r2/queue.lock
+r2/queue.lock.*
+r2/PAUSED.json
