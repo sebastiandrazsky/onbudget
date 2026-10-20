@@ -272,7 +272,16 @@ def t_subagents():
     check('subagents: the run ends with the plugin\'s notice, within the budget', s.result.startswith('[onbudget] Stopped:') and s.rows('step')[-1]['spent'] <= 1, brief(s))
 
 
-CHECKS = dict(untouched=t_untouched, dollar=t_dollar_stop, within=t_finishes_within, badenv=t_bad_env, typed=t_typed, slash=t_slash,
+def t_version():
+    """The version /onbudget states is the manifests' version."""
+    import re
+    code = re.search(r"export const VERSION = '([^']+)'", open(os.path.join(REPO, 'hooks', 'core.ts')).read()).group(1)
+    plugin = json.load(open(os.path.join(REPO, '.claude-plugin', 'plugin.json')))['version']
+    market = json.load(open(os.path.join(REPO, '.claude-plugin', 'marketplace.json')))
+    check('the version in hooks/core.ts is the one in both manifests', code == plugin == market['metadata']['version'] == market['plugins'][0]['version'], f'{code} {plugin} {market}')
+
+
+CHECKS = dict(version=t_version, untouched=t_untouched, dollar=t_dollar_stop, within=t_finishes_within, badenv=t_bad_env, typed=t_typed, slash=t_slash,
               percent=t_percent_observed, calibration=t_calibration_persists, resume=t_resume, capmod=t_capmod, wall=t_wall, exhausted=t_exhausted, rest=t_rest,
               subagents=t_subagents)
 

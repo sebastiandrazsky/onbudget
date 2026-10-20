@@ -2,6 +2,21 @@
 // register.ts is the only file that talks to Claude Code; everything it decides, it decides here.
 
 export const NAME = 'onbudget' // command and plugin name (see README, "Renaming")
+export const VERSION = '0.1.0' // as in .claude-plugin/plugin.json (a test compares them)
+export const TESTED = 'Claude Code 2.1.288 to 2.1.304' // the builds every suite passed on
+
+/**
+ * Claude Code's own countdown, `<total_tokens>N tokens left</total_tokens>`, which 2.1.304 attaches to requests (type
+ * `total_tokens_reminder`) counting down from a server-set 15,000,000 that starts again at each prompt. While a budget is
+ * open it is left out: it is not this task's budget. A countdown under a million tokens could be a budget the person set
+ * themselves (or the context window), so it is kept, and so is any countdown when CLAUDE_CODE_TOTAL_TOKENS_REMINDER is set.
+ */
+export const COUNTDOWN_TYPE = 'total_tokens_reminder'
+export const COUNTDOWN_MIN = 1_000_000
+export function isDefaultCountdown(text: string): boolean {
+  const m = /^\s*<total_tokens>\s*([0-9]+|Infinite)\s+tokens left\s*<\/total_tokens>\s*$/.exec(text)
+  return m !== null && (m[1] === 'Infinite' || Number(m[1]) >= COUNTDOWN_MIN)
+}
 
 /** Reserve used before any request has been priced under a budget. A heuristic, not a bound. */
 export const BOOTSTRAP_RESERVE_USD = 0.05
@@ -43,9 +58,10 @@ export type CalMark = { percent: number; ledger: number; resetsAt?: string; open
  * converts its points into dollars when one is known. `first` is the first reading under the budget, and `stepPts`
  * the largest move between two readings seen, at least one point: what one request is reckoned to move the window
  * by when there is no rate. `seed`: made from a reading taken before the budget, whose gap to the first answer is not
- * one request's movement.
+ * one request's movement. `moved`: whole points the window has moved since the first reading under the budget, across
+ * resets, whoever moved them (the receipt).
  */
-export type Wall = { last: number; resetsAt?: string; at: number; first: number; rate: number | null; stepPts: number; seed?: boolean }
+export type Wall = { last: number; resetsAt?: string; at: number; first: number; rate: number | null; stepPts: number; seed?: boolean; moved?: number }
 
 export type Budget = {
   v: 1
@@ -70,6 +86,7 @@ export type Budget = {
   window?: { kind: WindowKind; last: number | null; resetsAt?: string; moved: number; blind: number }
   walls?: Partial<Record<WindowKind, Wall>>
   effortCap: Effort | 'keep'
+  effortOver?: { effort: string; by: string } // a request went out above the cap: the effort and the plugin that set it
   remind: boolean // send the protocol again with the next meter line (after a compaction)
   startedAt: number
   savedAt?: number
@@ -336,10 +353,14 @@ export function observeWalls(b: Budget, readings: readonly Reading[], spentBefor
     const w = walls[kind]
     const rate = rates[kind]?.usdPerPoint ?? null
     if (!w) {
-      walls[kind] = { last: r.percentUsed, resetsAt: r.resetsAt, at: spentBefore, first: r.percentUsed, rate, stepPts: 1, ...(seed ? { seed } : {}) }
+      walls[kind] = { last: r.percentUsed, resetsAt: r.resetsAt, at: spentBefore, first: r.percentUsed, rate, stepPts: 1, moved: 0, ...(seed ? { seed } : {}) }
       continue
     }
-    if (!w.seed && !hasReset({ percent: w.last, resetsAt: w.resetsAt }, r)) w.stepPts = Math.max(w.stepPts, r.percentUsed - w.last)
+    const reset = hasReset({ percent: w.last, resetsAt: w.resetsAt }, r)
+    if (!w.seed) {
+      if (!reset) w.stepPts = Math.max(w.stepPts, r.percentUsed - w.last)
+      w.moved = (w.moved ?? 0) + (reset ? r.percentUsed : Math.max(0, r.percentUsed - w.last))
+    }
     delete w.seed
     Object.assign(w, { last: r.percentUsed, resetsAt: r.resetsAt, at: spentBefore, rate })
   }
@@ -367,6 +388,21 @@ export function sizeRest(b: Budget, r: Reading, rate: Rate | null, spentBefore: 
     if (b.window) Object.assign(b.window, { last: r.percentUsed, resetsAt: r.resetsAt, moved: 0, blind: 0 })
   }
   b.pending = false
+}
+
+/** What the task moved the account's windows by, as far as they were read: "the 5-hour window moved 3 points, the weekly 0". */
+export function movedText(b: Budget): string | null {
+  const parts = WINDOWS.flatMap(kind => {
+    const w = b.walls?.[kind]
+    return w && !w.seed ? [`${kind === 'five_hour' ? 'the 5-hour window' : 'the weekly window'} moved ${plural(w.moved ?? 0, 'point')}`] : []
+  })
+  return parts.length ? `${parts.join(', ')} (whole points, whole account)` : null
+}
+
+/** The line the plugin writes when Claude ends the task with its STATUS line. */
+export function endText(b: Budget, status: string): string {
+  const moved = movedText(b)
+  return `${NAME}: Claude ended the task with STATUS: ${status}, at ${money(b.spent)} of ${shown(b)}${moved ? `; ${moved}` : ''}. The budget is still open: a follow-up prompt draws on it, and /${NAME} off removes it.`
 }
 
 /** Why a stopped budget stopped, in a few words. */
@@ -412,6 +448,20 @@ export const stoppedText = (b: Budget) =>
 export const failClosedText = (reason: string) =>
   `[${NAME}] Not sent: the budget check could not be completed (${reason}), and ${NAME} does not send a request it cannot check. /${NAME} off removes the budget.`
 
+/**
+ * Whether a hook beneath this one sent the request above the effort cap, and which: `trace` lists each link beneath,
+ * nearest first and the engine last, with what it received. The effort the last one received is what was sent.
+ */
+export function effortBeneath(trace: readonly { plugin: string; received: unknown }[] | undefined, mine: unknown, cap: Effort | 'keep'): { effort: string; by: string } | null {
+  if (cap === 'keep' || !trace?.length) return null
+  const effortOf = (x: unknown) => (typeof x === 'object' && x !== null ? (x as { effort?: unknown }).effort : undefined)
+  const sentWith = effortOf(trace[trace.length - 1].received)
+  if (typeof sentWith !== 'string' || cappedEffort(sentWith, cap) === sentWith) return null
+  let by = trace[0].plugin
+  for (let i = 1; i < trace.length; i++) if (effortOf(trace[i].received) !== effortOf(trace[i - 1].received)) { by = trace[i - 1].plugin; break }
+  return effortOf(trace[0].received) === mine ? { effort: sentWith, by } : null
+}
+
 /** The effort to send: the caller's, lowered to the cap when it is above it. Never raised. A numeric effort is left alone. */
 export function cappedEffort<E>(effort: E, cap: Effort | 'keep'): E | Effort {
   if (cap === 'keep' || typeof effort !== 'string') return effort
@@ -456,15 +506,18 @@ export const round4 = (x: number) => Math.round(x * 10000) / 10000
 
 /** The `/onbudget` reading of one wall: where the window is and where onbudget stops for it. */
 function wallText(b: Budget, kind: WindowKind, w: Wall): string {
-  const where = `at ${trim(w.last)}%${resetsText(w.resetsAt)}`
+  const where = `at ${trim(w.last)}%${resetsText(w.resetsAt)}${w.seed ? '' : `, moved ${plural(w.moved ?? 0, 'point')} since the budget started (whole points, whole account)`}`
   if (w.rate) return `${where}; ${NAME} stops for it after about ${money(Math.max(0, w.at + (WALL_AT - w.last) * w.rate - b.spent))} more (1 point ≈ ${money(w.rate)})`
   return `${where}; no conversion rate is known, so ${NAME} stops for it at about ${trim(WALL_AT - 2 * w.stepPts)}%`
 }
 
 /** The multi-line answer of `/onbudget` with no arguments. */
-export function statusText(b: Budget | null, rates: Partial<Record<WindowKind, Rate | null>>, inFlight = 0): string {
+export function statusText(b: Budget | null, rates: Partial<Record<WindowKind, Rate | null>>, inFlight = 0, readings = true): string {
   const lines: string[] = []
-  if (!b) lines.push(`${NAME}: no budget is set. ${USAGE}`)
+  if (!b) {
+    lines.push(`${NAME}: no budget is set. ${USAGE}`)
+    if (!readings) lines.push(`  No usage-window reading has arrived in this session yet: the first comes with Claude's first answer. A dollar budget works now; 5h, week and percentage budgets are sized or checked from that reading.`)
+  }
   else {
     const m = binding(b, inFlight)
     const points = budgetPoints(b)
@@ -476,6 +529,7 @@ export function statusText(b: Budget | null, rates: Partial<Record<WindowKind, R
     lines.push(`${NAME}: ${head}${left} · ${b.state === 'stopped' ? `STOPPED (${stopLabel(b.stop)})` : m ? `tier ${m.tier}` : 'no reading yet'}`)
     lines.push(`  task: ${b.task}`)
     lines.push(`  requests: ${b.steps} answered, ${b.refused} refused · dearest so far ${money(b.maxStep)} (held back as reserve) · effort ${b.effortCap === 'keep' ? 'unchanged' : `capped at ${b.effortCap}`}`)
+    if (b.effortOver) lines.push(`  effort: the plugin ${b.effortOver.by} sent requests at ${b.effortOver.effort}, above the cap; the stop still holds, the cap does not`)
     if (b.window && b.spec.kind === 'pct') lines.push(`  ${windowName(b.window.kind)} window under the budget: ${b.window.last === null ? 'no reading yet' : `moved ${plural(b.window.moved, 'point')} since the budget started (account-wide)`}`)
     for (const kind of WINDOWS) {
       const w = b.walls?.[kind]
@@ -483,6 +537,7 @@ export function statusText(b: Budget | null, rates: Partial<Record<WindowKind, R
     }
     if (b.rate) lines.push(`  conversion: 1 point ≈ ${money(b.rate.usdPerPoint)} (${b.rate.source === 'config' ? 'from your settings' : `learned from ${plural(b.rate.points, 'point')} of movement; errs low`})`)
   }
+  lines.push(`  ${NAME} ${VERSION}, tested on ${TESTED}`)
   for (const kind of WINDOWS) {
     const r = rates[kind]
     if (r === undefined) continue

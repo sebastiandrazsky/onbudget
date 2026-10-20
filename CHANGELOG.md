@@ -12,7 +12,10 @@ First version.
 - `5h` and `week` are budgets: what that window has left below 99% when the budget is set, in dollars when a conversion rate is known and in the window's own points when not. A reset of the window during the task does not enlarge the budget.
 - Percentage budgets are converted to dollars with a rate learned from this account's own usage readings, or enforced on the window reading itself until a rate is known.
 - Once a budget has stopped a session, further prompts are turned away with the reason, so nothing more is spent on them.
-- In a terminal session, when Claude ends the task with its STATUS line, the plugin writes one line of its own: the spend, how the task ended, and that the budget is still open.
+- In a terminal session, when Claude ends the task with its STATUS line, the plugin writes one line of its own: the spend, how the task ended, how many whole points each usage window moved, and that the budget is still open. `/onbudget` shows the same points per window.
+- While a budget is open, Claude Code's own token countdown (`<total_tokens>N tokens left</total_tokens>`, which 2.1.304 adds to every request from a server-set 15 million) is left out of new requests, so the model has one budget signal and it is the true one. The copy in the system prompt stays, nothing already sent changes, and a resumed session gives every countdown the answer it was first sent with. A countdown under a million tokens, or one set with `CLAUDE_CODE_TOTAL_TOKENS_REMINDER`, is kept.
+- If another plugin raises a request's effort above the budget's cap (effortless can, depending on load order), onbudget says so once, names the plugin, logs every such request, and shows it in `/onbudget`. It does not try to override it.
+- `/onbudget` states the plugin's version and the Claude Code range it was tested on, and says when no usage-window reading has arrived yet.
 - The budget survives compaction, a reload, a resumed session and a switch to another session, and ends with `/clear`.
-- Requires Claude Code 2.1.287 or later, where plugin mods are on by default. Tested on 2.1.289 and 2.1.299.
-- A GitHub Actions workflow validates the plugin and runs its in-engine tests against the current Claude Code on every push and weekly. It has not run yet.
+- Requires Claude Code 2.1.287 or later, where plugin mods are on by default. Every suite passed on 2.1.288 and 2.1.304; earlier builds of this version also on 2.1.289 and 2.1.299.
+- A GitHub Actions workflow validates the plugin and runs its in-engine tests, the scripted end-to-end checks and the fake-API checks against the current Claude Code on every push and weekly.

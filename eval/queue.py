@@ -9,8 +9,9 @@
   python3 eval/queue.py retry <slot>                 release a slot without retries left, or a smoke slot whose run the watchdog killed
   nohup python3 eval/queue.py run > eval/queue.nohup 2>&1 &        unattended
 
-  ONBUDGET_EVAL_ROUND=2 python3 eval/queue.py ...    the second round (2026-10-20): arm C again, then arm D, in eval/r2/ with its
-                                                     own state, ledger, ceiling and runs; `run --phase r2` runs it
+  ONBUDGET_EVAL_ROUND=2 python3 eval/queue.py ...    the second round (2026-10-20, Claude Code 2.1.304): arm C, then arm D, then
+                                                     arm B, all at HARD, in eval/r2/ with its own state, ledger, ceiling and runs;
+                                                     `run --phase r2` runs it
 
 Every attempt of every slot gets its own run directory and session; a slot with a usable run is never repeated."""
 import os, sys
@@ -32,9 +33,11 @@ ECHO = True                                        # also print log lines (they 
 PHASES = ('smoke', 'main-tight', 'main-hard', 'pct', 'extra', 'simple-cap', 'hard-extra')   # the last two were added after the first results
 SELECT = {'smoke': PHASES[:1], 'main': PHASES[1:5], 'added': PHASES[5:], 'all': PHASES}
 if ROUND == '2':
-    # The second round re-runs arm C on the changed plugin (git tag eval-freeze-2), then plain Claude Code under its own
-    # --max-budget-usd. It relies on the first round's smoke phase; a C run over its budget or with a false claim stops it.
-    PHASES = ('r2-onbudget', 'r2-maxbudget')
+    # The second round runs the shipping build (git tag eval-freeze-3) on the current Claude Code: arm C, then plain Claude
+    # Code under its own --max-budget-usd, then the budget sentence in the prompt, all at HARD and in that order of priority.
+    # It relies on the first round's smoke phase and its own interactive smoke session; a C run over its budget or with a
+    # false claim stops it.
+    PHASES = ('r2-onbudget', 'r2-maxbudget', 'r2-prompt')
     SELECT = {'r2': PHASES}
 
 
@@ -70,10 +73,8 @@ def slots():
     def smoke(arm, task, usd):
         return dict(id=f'smoke-{arm}-{task}', phase='smoke', mode='single', arm=arm, level='SMOKE', task=task, usd=usd, raw=f'${usd:.2f}')
     if ROUND == '2':
-        groups = {'r2-onbudget': [session('r2-onbudget', 'C', 'HARD', i, 'hard-r2') for i in (1, 2, 3)] + [session('r2-onbudget', 'C', 'TIGHT', i, 'tight-r2') for i in (1, 2)],
-                  'r2-maxbudget': [session('r2-maxbudget', 'D', 'HARD', i) for i in (1, 2)]}
-        rng = random.Random(SEED); rng.shuffle(groups['r2-onbudget'])
-        return groups['r2-onbudget'] + groups['r2-maxbudget']
+        return ([session('r2-onbudget', 'C', 'HARD', i, 'hard-r2') for i in (1, 2, 3)] + [session('r2-maxbudget', 'D', 'HARD', i, 'hard-r2') for i in (1, 2)]
+                + [session('r2-prompt', 'B', 'HARD', i, 'hard-r2') for i in (1, 2)])
     groups = {'smoke': [smoke('C', 'packaging', 0.46), smoke('C', 'tenacity', 0.28), smoke('A', 'tenacity', 0.28)],
               'main-tight': [session('main-tight', arm, 'TIGHT', i) for arm in 'ABC' for i in (1, 2)],
               'main-hard': [session('main-hard', arm, 'HARD', i) for arm in 'ABC' for i in (1, 2)],

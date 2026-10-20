@@ -414,6 +414,6 @@ describe('the event log', () => {
     expect([...w.files.keys()].sort()).toEqual(['/log', '/log.1'])
     expect(w.files.get('/log')!.trim().split('\n').length).toBe(200)
     expect(rows(w, 'step').length).toBe(205)
-    expect(rows(w, 'session.start')[0]).toEqual({ sid: 'session-1', budget: null, restored: false, effortCap: 'medium', version: { version: 'test' } })
+    expect(rows(w, 'session.start')[0]).toEqual({ sid: 'session-1', budget: null, restored: false, effortCap: 'medium', history: false, version: { version: 'test' } })
   })
 })

@@ -198,3 +198,14 @@ Before the interactive sessions, a prompt sent after a stop entered the conversa
 ### Raw data
 
 `eval/runs/<run>/` holds each run's prompt, command, plugin log, score, final message and diff. `eval/results.csv` has one row per run, `eval/report.txt` the tables, `eval/queue.log` the timeline. The full working trees and transcripts are on disk beside them and are not in git. The lab directory was read and never written.
+
+## Addendum, 2026-10-20: release candidate and second round
+
+### Pre-registered reading of round two
+
+Written and committed with the frozen build (git tag `eval-freeze-3`) before the paid queue started. Round two runs that build on Claude Code 2.1.304, the release current on 2026-10-20, pinned by its binary path: an interactive smoke session, then arm C (onbudget) three times at HARD ($2.47), then arm D (plain Claude Code with `--max-budget-usd 2.47`) twice, then arm B (the budget sentence in the prompt) twice if the $25 ceiling still allows.
+
+1. The guarantee. The README leads with what onbudget guarantees: a request the budget cannot cover is refused before it is sent, so a task ends within its budget. That claim stays only if every round-two arm C run ends within its budget. A run that does not stops the queue and is reported before anything else.
+2. The comparison with the budget sentence. It stays near the top of the README only if round-two arm C at HARD averages at least 5.00 of 7 tasks complete, the figure of round one's arm B at HARD (Claude Code 2.1.289, n = 3). Otherwise it moves below the fold, as a table giving each row's Claude Code version and n.
+3. Every number in README and REPORT carries its Claude Code version and n. No p-values are computed from round two.
+4. Round two's arm B and arm D runs are reported beside the arm C rows with their version and n. They do not change rules 1 and 2.

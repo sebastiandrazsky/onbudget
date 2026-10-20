@@ -2,16 +2,32 @@
   "name": "onbudget",
   "version": "0.1.0",
   "description": "Run a task under a usage budget: /onbudget $3 <task>, /onbudget 10% 5h <task>, /onbudget 5% week <task>. Meters the task's own spend, shows it to Claude, and refuses requests the budget cannot cover.",
-  "author": { "name": "Sebastian Drazsky" },
+  "author": {
+    "name": "Sebastian Drazsky",
+    "email": "sebastian@sebastiandrazsky.com"
+  },
+  "homepage": "https://github.com/sebastiandrazsky/onbudget",
+  "repository": "https://github.com/sebastiandrazsky/onbudget",
   "license": "MIT",
-  "keywords": ["budget", "usage", "cost", "rate-limit", "function-hooks"],
+  "keywords": [
+    "budget",
+    "usage",
+    "cost",
+    "rate-limit",
+    "function-hooks"
+  ],
   "userConfig": {
     "effort": {
       "type": "string",
       "title": "Effort cap while a budget is set",
       "description": "Requests sent under a budget have their reasoning effort lowered to this level (never raised). keep leaves your effort setting alone.",
       "default": "medium",
-      "options": ["low", "medium", "high", "keep"]
+      "options": [
+        "low",
+        "medium",
+        "high",
+        "keep"
+      ]
     },
     "usdPerPoint5h": {
       "type": "number",

@@ -11,6 +11,7 @@ export function world(on: On, init: { env?: Record<string, string>; store?: Reco
     hasLedger: true,
     readings: [] as { kind: string; percentUsed: number; resetsAt?: string }[],
     contextTokens: 0,
+    startedAt: Date.now(), // when the session began (real time, as the plugin compares it with its own load); earlier = resumed
     sid: init.sid ?? 'session-1',
     model: 'claude-opus-5-5',
     requests: [] as any[], // model requests that were really sent, as the engine received them
@@ -26,7 +27,7 @@ export function world(on: On, init: { env?: Record<string, string>; store?: Reco
     store: new Map<string, unknown>(Object.entries(init.store ?? {})), // the plugin's own store
     clock: mock.clock(on, { now: 1_700_000_000_000 }),
     usage() {
-      return { startedAt: 0, context: { window: 1_000_000, tokens: w.contextTokens }, rateLimits: w.readings.map(r => ({ ...r })), ...(w.hasLedger ? { cost: { usd: w.cost } } : {}) }
+      return { startedAt: w.startedAt, context: { window: 1_000_000, tokens: w.contextTokens }, rateLimits: w.readings.map(r => ({ ...r })), ...(w.hasLedger ? { cost: { usd: w.cost } } : {}) }
     },
   }
   mock.env(on, init.env ?? {})
@@ -56,6 +57,7 @@ export function world(on: On, init: { env?: Record<string, string>; store?: Reco
   on('session.measure', (_$, e) => ({ changed: e.changed }))
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
   on('session.compact', (_$, e) => ({ messages: e.messages }) as any)
+  on('prompt.attachment', (_$, e) => ({ text: e.text }))
   on('tool.call', (_$, e) => w.tool(e))
   on('turn.step', async function* (_$, e) {
     w.requests.push(e)
@@ -92,6 +94,9 @@ export const start = ($: any) => $.session.start({ cwd: '/work', surface: null, 
 export const run = ($: any, args: string) => $.command.run({ command: 'onbudget', args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } })
 export const prompt = ($: any, text: string, kind = 'composer') => $.prompt.submit({ text, wait: false, origin: { kind } })
 export const tool = ($: any, over: Record<string, unknown> = {}) => $.tool.call({ tool: 'Bash', input: { command: 'true' }, tool_use_id: 'toolu_1', ...over })
+/** One attachment as the engine asks about it while building a request: what the model will read for it (null: left out). */
+export const attach = async ($: any, text: string, over: Record<string, unknown> = {}) =>
+  (await $.prompt.attachment({ type: 'total_tokens_reminder', text, origin: { kind: 'engine' }, ...over })).text
 export const compact = ($: any, trigger: string) => $.session.compact({ trigger, messages: [{ role: 'user', text: 'earlier', toolUses: [] }] })
 export const measure = ($: any, w: World, changed: string[] = ['cost']) => $.session.measure({ context: w.usage().context, rateLimits: w.usage().rateLimits, cost: { usd: w.cost }, changed })
 

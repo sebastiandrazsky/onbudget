@@ -27,8 +27,8 @@ Accept the folder-trust question for the scratch folder. During the steps below 
 - [ ] A status line under the prompt reads `onbudget: spent $… of $0.60 | left before the stop $… (…%) | tier …` and moves as Claude works.
 - [ ] Claude runs the tests before it finishes.
 - [ ] Its last message says what is complete and how it was verified, and ends with `STATUS: COMPLETE`.
-- [ ] Below it, a line from the plugin: `onbudget: Claude ended the task with STATUS: COMPLETE, at $… of $0.60. The budget is still open…`
-- [ ] `/onbudget` shows the spend, the request count, and the dearest request so far.
+- [ ] Below it, a line from the plugin: `onbudget: Claude ended the task with STATUS: COMPLETE, at $… of $0.60; the 5-hour window moved … points, the weekly window moved … (whole points, whole account). The budget is still open…`
+- [ ] `/onbudget` shows the spend, the request count, the dearest request so far, the points each window moved, and `onbudget 0.1.0, tested on Claude Code 2.1.288 to 2.1.304`.
 
 ## 3. A follow-up on the same budget
 
@@ -86,10 +86,12 @@ claude -p --safe-mode --plugin-dir ~/Documents/onbudget "/onbudget"
 
 ## 9. The repository and the publication copy
 
-- [ ] `claude plugin validate --strict ~/Documents/onbudget/.claude-plugin/plugin.json` and `claude plugin validate --strict ~/Documents/onbudget` pass.
+- [ ] `claude plugin validate --strict ~/Documents/onbudget/.claude-plugin/plugin.json` and `claude plugin validate --strict ~/Documents/onbudget` pass, and the "calls" list is the one in the README.
 - [ ] `claude plugin test ~/Documents/onbudget` reports no failures.
 - [ ] The name in `LICENSE`, `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`, and the GitHub account in the README's install lines, are the ones you want published.
 - [ ] `REPORT.md` says the evaluation finished, and its numbers match the table in `README.md`.
+- [ ] In a clean config directory, `claude plugin marketplace add sebastiandrazsky/onbudget` then `claude plugin install onbudget@onbudget` installs it, and `/onbudget` answers (needs read access to the repository while it is private).
+- [ ] The repository's GitHub workflow is green on its latest run.
 - [ ] You push `~/Documents/onbudget-publish/onbudget`, not `~/Documents/onbudget`: the archive's history carries your user name, home paths, e-mail and the interactive sessions' screen captures. The command at the end of `REPORT.md` shows the copy is clean; run it again after any change to the copy.
 
 ## Clean up

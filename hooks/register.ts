@@ -2,20 +2,20 @@
 //
 // Everything this module does:
 //   reads    the session's cost ledger and rate-limit readings, its id and model, the environment variables
-//            ONBUDGET, ONBUDGET_EFFORT and ONBUDGET_LOG, and its own store;
+//            ONBUDGET, ONBUDGET_EFFORT, ONBUDGET_LOG and CLAUDE_CODE_TOTAL_TOKENS_REMINDER, and its own store;
 //   writes   its own store (each session's budget; calibration records of dollars spent and points moved; the
 //            last reading of each usage window), its status line, and, only when ONBUDGET_LOG names a file, an
 //            event log there;
 //   changes  only while a budget is set: the effort of each model request (lowered to the cap, never raised),
-//            one line of context after each tool result and with each later prompt, and the refusal of requests
-//            the budget cannot cover.
+//            one line of context after each tool result and with each later prompt, the refusal of requests the
+//            budget cannot cover, and Claude Code's own token countdown, which is left out of new requests.
 // It runs no commands and makes no model or network calls of its own. With no budget set, every hook passes
 // its event through unchanged; the only work left is the calibration record kept at session.measure.
 import type { EngineInterface, PromptOrigin, Register, SessionUsage, TurnStepInput, TurnStepResult } from 'claude-code'
 import {
   type Budget, type CalMark, type CalRecord, type Effort, type Rate, type Reading, type WindowKind,
-  BOOTSTRAP_RESERVE_USD, DAY_MS, MAX_AGE_DAYS, MIN_OBSERVED_POINTS, NAME, WALL_AT, WINDOWS,
-  binding, cappedEffort, dropStaleWalls, plural, extendCalibration, failClosedText, fold, isEffortCap, isStale, meterLine, money, observeWalls, observeWindow,
+  BOOTSTRAP_RESERVE_USD, COUNTDOWN_TYPE, DAY_MS, MAX_AGE_DAYS, MIN_OBSERVED_POINTS, NAME, WALL_AT, WINDOWS,
+  binding, cappedEffort, dropStaleWalls, effortBeneath, endText, isDefaultCountdown, plural, extendCalibration, failClosedText, fold, isEffortCap, isStale, meterLine, money, observeWalls, observeWindow,
   parseCommand, poolRate, protocol, refusalText, reminder, reserveOf, resetsText, round4, shown, sizeRest, statusText, stepCostOf, stopCheck, stopLabel,
   stoppedText, trim, windowName,
 } from './core.ts'
@@ -28,7 +28,9 @@ const LOG_CHUNK = 200
 // Session state. The store is the record: a reload, a resumed session or a switch to another session reads it back.
 // Store keys: budget:<session>, env:<session> (ONBUDGET was used or cancelled there),
 // cal:<window>:<day>:<session>:<model> (one calibration record; the day lets old ones be deleted unread), and
-// seen:<window> (the newest reading of that window on this machine, for a budget set before a session has its own).
+// seen:<window> (the newest reading of that window on this machine, for a budget set before a session has its own), and
+// hid:<session> (which countdowns were left out of that session's requests, by text and by the order in which that text
+// appeared, so that a resumed session leaves out the same ones).
 let boot: Promise<void> | null = null
 let sid = ''
 let budget: Budget | null = null
@@ -46,6 +48,12 @@ let calDay = 0
 let others: CalRecord[] | null = null
 const seenMark: Partial<Record<WindowKind, string>> = {}
 let interactive = false
+let countdownSet = false // CLAUDE_CODE_TOTAL_TOKENS_REMINDER is set: the person chose the countdown, so it is kept
+let history = false // a resumed session before this process's first request: the engine asks again about attachments it sent
+let hidden: Record<string, number[]> = {} // countdowns left out of this session's requests: text -> occurrences (hid:<session>)
+const asked = new Map<string, number>() // how often each countdown text has been asked about in this process
+const HIDDEN_KEEP = 2000
+const LOADED = Date.now() // when this module loaded: a session that began well before it was resumed
 let logPath: string | undefined
 let logRows: string[] = []
 let logChunk = 0
@@ -95,6 +103,14 @@ async function load($: Engine): Promise<void> {
   const effort = (await env($.env.get('ONBUDGET_EFFORT')))?.toLowerCase()
   if (isEffortCap(effort)) effortCap = effort
   envBudget = (await $.store.get(`env:${sid}`)) === undefined ? await env($.env.get('ONBUDGET')) : undefined
+  countdownSet = (await env($.env.get('CLAUDE_CODE_TOTAL_TOKENS_REMINDER'))) !== undefined
+  const kept = await $.store.get(`hid:${sid}`)
+  hidden = {}
+  if (isRecord(kept) && isRecord(kept.hidden)) for (const [text, at] of Object.entries(kept.hidden)) if (Array.isArray(at)) hidden[text] = at.filter(n => typeof n === 'number')
+  // A session that began before this process (a resume, a switch with /resume) has attachments the engine will ask
+  // about again before the first request goes out; until then they are answered as they were when first sent.
+  const began = (await $.session.usage().catch(() => null))?.startedAt
+  history = typeof began === 'number' && (switched || began < LOADED - 10_000)
   await prune($, now)
   const saved = await $.store.get(`budget:${sid}`)
   if (isBudget(saved)) {
@@ -119,7 +135,7 @@ async function prune($: Engine, now: number): Promise<void> {
       if (key.startsWith('cal:')) {
         const day = Number(key.split(':')[2])
         if (!(calDay - day <= MAX_AGE_DAYS)) await $.store.delete(key)
-      } else if ((key.startsWith('budget:') || key.startsWith('env:')) && !key.endsWith(`:${sid}`)) {
+      } else if ((key.startsWith('budget:') || key.startsWith('env:') || key.startsWith('hid:')) && !key.endsWith(`:${sid}`)) {
         const value = await $.store.get(key)
         const at = isBudget(value) ? (value.savedAt ?? value.startedAt) : isRecord(value) && typeof value.at === 'number' ? value.at : 0
         if (now - at >= MAX_AGE_DAYS * DAY_MS) await $.store.delete(key)
@@ -137,6 +153,8 @@ function leaveSession(): void {
   switched = true
   calRecs.clear()
   calMarks = {}
+  hidden = {}
+  asked.clear()
 }
 
 /** Reads the ledger and folds it into the budget. Reads are queued, so readings are folded in the order taken. */
@@ -270,7 +288,8 @@ async function command($: Engine, args: string): Promise<{ say: string; prompt?:
   if (c.kind === 'status') {
     await refresh()
     const pending = !budget && envBudget ? `\n  pending: ONBUDGET=${envBudget} applies to the next prompt (/${NAME} off cancels it)` : ''
-    return { say: statusText(budget, await wallRates($), inFlight) + pending }
+    const readings = (await $.session.usage()).rateLimits.some(r => (WINDOWS as readonly string[]).includes(r.kind))
+    return { say: statusText(budget, await wallRates($), inFlight, readings) + pending }
   }
   if (c.kind === 'off') {
     if (!budget) {
@@ -406,6 +425,13 @@ function submitLater($: Engine, text: string, attempt: number): void {
   })
 }
 
+/** Saves which countdowns were left out of this session's requests (at most HIDDEN_KEEP texts, the newest). */
+async function saveHidden($: Engine): Promise<void> {
+  const texts = Object.keys(hidden)
+  for (const text of texts.slice(0, Math.max(0, texts.length - HIDDEN_KEEP))) delete hidden[text]
+  await $.store.set(`hid:${sid}`, { at: await $.clock.now(), hidden })
+}
+
 /** The made-up response that stands in for a request that is not sent. */
 async function* refuse(e: TurnStepInput, text: string): AsyncGenerator<any, TurnStepResult> {
   yield { kind: 'text', index: 0, text }
@@ -426,7 +452,7 @@ export const register: Register = (on, options) => {
     try {
       await ready($)
       showStatus($)
-      await log($, 'session.start', { sid, budget: budget?.raw ?? envBudget ?? null, restored: budget !== null, effortCap, version: await $.session.version().catch(() => null) })
+      await log($, 'session.start', { sid, budget: budget?.raw ?? envBudget ?? null, restored: budget !== null, effortCap, history, version: await $.session.version().catch(() => null) })
     } catch (err) { await log($, 'hookfail', { where: 'session.start', error: errText(err) }) }
     return next(e)
   }).catch(($, e, next) => next(e))
@@ -511,7 +537,10 @@ export const register: Register = (on, options) => {
     sent.add(stepKey(e))
     inFlight += 1
     let r: TurnStepResult
-    try { r = yield* next(ev) } finally { inFlight -= 1 }
+    // The engine builds the request beneath this hook, asking about its attachments then: a resumed session's history
+    // is asked about during its first request, which therefore keeps every countdown as it was.
+    try { r = yield* next(ev) } finally { inFlight -= 1; history = false }
+    const over = effortBeneath(next.trace, ev.effort, b.effortCap)
     try {
       const model = await calModel($).catch(() => '')
       const now = await $.clock.now()
@@ -541,12 +570,18 @@ export const register: Register = (on, options) => {
         showStatus($)
         if (sizing && !b.pending) await log($, 'sized', { usd: b.usd, rate: b.rate, allowance: b.allowance ?? null, spent: b.spent })
         const status = e.agentId === undefined && r?.stopReason === 'end_turn' ? /STATUS:\s*\**\s*(COMPLETE|INCOMPLETE)/.exec(r.answer ?? '') : null
-        if (status && interactive) say($, `${NAME}: Claude ended the task with STATUS: ${status[1]}, at ${money(b.spent)} of ${shown(b)}. The budget is still open: a follow-up prompt draws on it, and /${NAME} off removes it.`)
+        if (status && interactive) say($, endText(b, status[1]))
+        if (over && !b.effortOver) {
+          b.effortOver = over
+          await save($)
+          say($, `${NAME}: the plugin ${over.by} sent a request at effort ${over.effort}, above the budget's cap of ${b.effortCap}. The budget's stop still holds; the effort cap does not while ${over.by} sets effort.`)
+        }
       }
       await log($, 'step', {
         agentId: e.agentId ?? null, index: e.index, model: r?.usage?.model ?? e.model, effort: ev.effort ?? null, callerEffort: e.effort ?? null,
         stopReason: r?.stopReason ?? null, usage: r?.usage ?? null, tools: (r?.toolUses ?? []).map(t => t.name), costUsd: ledger, rateLimits: usage.rateLimits,
         spent: b.spent, reserve: reserveOf(b), stepCost, maxStep: b.maxStep, inFlight, beside, budget: b.usd, window: b.window ?? null,
+        effortSent: over?.effort ?? ev.effort ?? null, effortOverBy: over?.by ?? null,
         walls: b.walls ?? null, binding: binding(b, inFlight),
       })
       await saveCalibration($, grew)
@@ -582,6 +617,32 @@ export const register: Register = (on, options) => {
     }
   }).catch(($, e, next) => next(e))
 
+  // Claude Code's own token countdown is not this task's budget: while one is open it is left out of new requests. An
+  // attachment already sent keeps the answer it was sent with (the engine holds an answer per attachment for the
+  // process, and after a resume onbudget gives the same one again), so the prompt cache's prefix never changes.
+  on('prompt.attachment', { type: COUNTDOWN_TYPE }, async ($, e, next) => {
+    const r = await next(e)
+    try {
+      await ready($)
+      if (r?.text == null) return r
+      // The same text recurs (each prompt's countdown starts at the same figure), so a countdown is known by its text
+      // and by how many times that text came before it: the order in which the engine asks again after a resume.
+      const nth = asked.get(r.text) ?? 0
+      asked.set(r.text, nth + 1)
+      let leave = hidden[r.text]?.includes(nth) === true
+      if (!leave && !history && budget !== null && !countdownSet && isDefaultCountdown(r.text)) {
+        leave = true
+        ;(hidden[r.text] ??= []).push(nth)
+        await saveHidden($)
+      }
+      await log($, 'countdown', { agentId: e.agentId ?? null, text: r.text.slice(0, 60), nth, left: leave, history, budget: budget !== null })
+      return leave ? { text: null } : r
+    } catch (err) {
+      await log($, 'hookfail', { where: 'prompt.attachment', error: errText(err) })
+      return r
+    }
+  }).catch(($, e, next) => next(e))
+
   // Readings as the engine reports them: the calibration record, in every session.
   on('session.measure', async ($, e, next) => {
     try {
@@ -600,10 +661,15 @@ export const register: Register = (on, options) => {
   on('session.compact', async ($, e, next) => {
     const r = await next(e)
     try {
-      if (budget && e.agentId === undefined && e.trigger !== 'precompute' && !('skip' in r && r.skip)) {
-        budget.remind = true
-        await save($)
-        await log($, 'compact', { trigger: e.trigger })
+      if (e.agentId === undefined && e.trigger !== 'precompute' && !('skip' in r && r.skip)) {
+        // The conversation starts again from the summary: so does the numbering of the countdowns in it.
+        asked.clear()
+        if (Object.keys(hidden).length) { hidden = {}; await $.store.delete(`hid:${sid}`) }
+        if (budget) {
+          budget.remind = true
+          await save($)
+          await log($, 'compact', { trigger: e.trigger })
+        }
       }
     } catch { /* ignore */ }
     return r
@@ -620,7 +686,7 @@ export const register: Register = (on, options) => {
       if (b) {
         try { fold(b, ledgerOf(usage)) } catch { /* no ledger */ }
         // /clear ends the conversation the budget belonged to; any other ending keeps it for a resume.
-        if (e.reason === 'clear') await $.store.delete(`budget:${id}`)
+        if (e.reason === 'clear') { await $.store.delete(`budget:${id}`); await $.store.delete(`hid:${id}`) }
         else { b.savedAt = await $.clock.now(); await $.store.set(`budget:${id}`, b) }
         if (leaving) showStatus($)
       }

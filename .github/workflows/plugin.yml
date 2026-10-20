@@ -1,6 +1,7 @@
-# Validates the plugin and runs its in-engine tests against the Claude Code release current at the time of the run:
+# Validates the plugin and runs its zero-cost suites against the Claude Code release current at the time of the run:
 # on every push and pull request, and weekly, so that a release that changes the mods API shows up here first.
-# UNTESTED: written before the repository was first pushed; it has never run on GitHub.
+# Nothing here makes a model request: run.py answers every request with a scripted model, and wire.py sends them to a
+# fake API on localhost with a fake key.
 name: plugin
 on:
   push:
@@ -11,16 +12,24 @@ on:
 jobs:
   validate-and-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Install the current Claude Code
         run: |
           curl -fsSL https://claude.ai/install.sh | bash
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - run: claude --version
-      - name: Validate (the plugin manifest, then the marketplace manifest and hooks)
+      - name: Validate (the plugin manifest, then the marketplace manifest)
         run: |
           claude plugin validate --strict .claude-plugin/plugin.json
           claude plugin validate --strict .
-      - name: In-engine tests (no model requests)
+      - name: In-engine tests
         run: claude plugin test .
+      - name: End to end, scripted model
+        run: python3 tests/e2e/run.py
+      - name: End to end, fake API on localhost
+        run: python3 tests/e2e/wire.py
