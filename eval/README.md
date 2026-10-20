@@ -266,8 +266,8 @@ everywhere (changed files, `ws.diff`, changelog rules).
 The repository published as `sebastiandrazsky/onbudget` is a rewrite of this one's whole history
 (`~/Documents/onbudget-publish/make_copy.py`, kept outside the repository). In every file of every commit, and in commit
 messages and authorship: the home path of the machine the evaluation ran on reads `/Users/user`, also in Claude Code's
-folder form (`-Users-user-`); the e-mail address the commits were made with is replaced by the public one; author and
-committer are the public identity. The `screen.txt` files of the interactive sessions (the screen as text, which shows
+folder form (`-Users-user`); the e-mail address the commits were made with is replaced by the public one, and its local
+part, where it appears on its own, by `user`; author and committer are the public identity. The `screen.txt` files of the interactive sessions (the screen as text, which shows
 the slash commands installed on that machine) are left out of every commit. Nothing else was changed: the logs, scores,
 diffs and tables are as the runs wrote them. The tags `eval-freeze`, `eval-freeze-2` and `eval-freeze-3` point at the
 rewritten commits of the same builds.
