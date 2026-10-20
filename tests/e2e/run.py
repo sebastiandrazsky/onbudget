@@ -254,7 +254,8 @@ def t_subagents():
     # Claude Code runs subagents in the background: the main thread answers at once and hears from them later.
     # Their results arrive as one or two notifications, each a turn of its own: those answers cost nothing here.
     main = [dict(agents=['first', 'second'], cost=0.2), dict(text='started', cost=0.1), dict(text='all done', cost=0), dict(text='all done', cost=0)]
-    agents = [[dict(bash='echo a', cost=0.25, sleep_ms=1000), dict(text='a done', cost=0.05)], [dict(bash='echo b', cost=0.25, sleep_ms=2000), dict(text='b done', cost=0.05)]]
+    # Completions are scripted seconds apart: two requests that end at the same instant cannot be told apart in the ledger.
+    agents = [[dict(bash='echo a', cost=0.25, sleep_ms=1000), dict(text='a done', cost=0.05, sleep_ms=500)], [dict(bash='echo b', cost=0.25, sleep_ms=4000), dict(text='b done', cost=0.05, sleep_ms=500)]]
     r = Run('subagents', 'Task.', main, env=dict(ONBUDGET='$3'), agents=agents)
     steps = r.rows('step'); costs = sorted(round(s['stepCost'], 6) for s in steps if s['stepCost'] > 0)
     check('subagents: two ran, and the plugin had requests in flight at once', len({s['agentId'] for s in steps if s['agentId']}) == 2 and max(s['beside'] for s in steps) >= 1,
@@ -262,8 +263,8 @@ def t_subagents():
     check('subagents: each request is charged its own cost, and the charges sum to the ledger', costs == [0.05, 0.05, 0.1, 0.2, 0.25, 0.25] and abs(steps[-1]['spent'] - 0.9) < 1e-9, f'{costs} {[s["spent"] for s in steps]}')
     check('subagents: the meter follows the subagents\' tool results too', any(t['agentId'] for t in r.rows('tool')) and r.result == 'all done', brief(r))
     # The stop with requests in flight: the second subagent's next request is refused because the first one's is still running.
-    agents = [[dict(bash='echo a', cost=0.25, sleep_ms=1000), dict(bash='echo a2', cost=0.1, sleep_ms=1500), dict(text='a done', cost=0.05)],
-              [dict(bash='echo b', cost=0.25, sleep_ms=2000), dict(text='b done', cost=0.05)]]
+    agents = [[dict(bash='echo a', cost=0.25, sleep_ms=1000), dict(bash='echo a2', cost=0.1, sleep_ms=6000), dict(text='a done', cost=0.05)],
+              [dict(bash='echo b', cost=0.25, sleep_ms=3500), dict(text='b done', cost=0.05)]]
     s = Run('subagents-stop', 'Task.', main, env=dict(ONBUDGET='$1'), agents=agents)
     stops = s.rows('stop')
     check('subagents: a request is refused for the reserve of one still in flight, where alone it would have fitted',

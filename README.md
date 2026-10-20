@@ -144,7 +144,7 @@ ONBUDGET='5h' claude -p "Build this application"
 
 ## How it works
 
-**The ledger.** Spend is the growth of the session's own cost ledger since the budget was set. Each request is charged the ledger's growth since the previous request completed, and no more than its growth since the request was sent, so a request is not charged for the ones that ran beside it or for what was spent between requests.
+**The ledger.** Spend is the growth of the session's own cost ledger since the budget was set. Each request is charged the ledger's growth since the previous request completed, and no more than its growth since the request was sent, so a request is not charged for the ones that ran beside it or for what was spent between requests. Two requests that finish at the same instant cannot be told apart: the first to read the ledger is charged both, the total stays exact, and the reserve errs high.
 
 **The stop.** A request cannot be priced before it is sent, so the plugin holds back what the dearest request so far has cost: refuse when `spent + reserve × (requests in flight + 1) ≥ budget`. A window of the account is a limit of the same shape. With a learned rate, its room is converted into the task's dollars from the reading that came with the latest answer; without one, each request is reckoned to move the window by a point, or by the largest step seen between two readings.
 
