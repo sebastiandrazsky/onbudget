@@ -304,10 +304,10 @@ Round two: $14.62 for the seven queued runs (C $5.83, D $4.31, B $4.48) and $0.2
 
 Checked against the directory's pre-submission checklist (claude.com/docs/plugins/pre-submission-checklist): a README of well over 40 words and a LICENSE at the root; the name `onbudget` in lowercase letters, not a reserved word (whether it is free can only be checked by the portal's Validate); `.claude-plugin/plugin.json` with author, homepage and repository; `hooks/hooks.json` with a `modules` array; no `.DS_Store`, `Thumbs.db`, `desktop.ini` or `__MACOSX` entries; file names valid on Windows and macOS; no symbolic links (the shim's two links are now copies), submodules or LFS; 456 files, the largest 95 KiB, all text; readable source, no credentials; and a README that says what the plugin and the repository's scripts run and contact.
 
-One command shows the copy is clean. It counts, over every object in the copy's object store and every file outside it, the home path in either form and the personal address, then lists any `screen.txt` or system file in any commit's tree, any unreachable object, and every author and committer:
+One command shows the copy is clean. `~/Documents/onbudget-publish/check_copy.sh`, kept beside the copy and outside it so that it carries none of the strings it looks for, counts over every object in the copy's object store and every file outside it this machine's home path, in both its forms, and the e-mail addresses the archive's commits were made with; then it lists any `screen.txt` or system file in any commit's tree, any unreachable object, and every author and committer:
 
 ```bash
-cd ~/Documents/onbudget-publish/onbudget && echo "home path or personal address: $({ git cat-file --batch-all-objects --batch; find . -type f ! -path './.git/objects/*' -exec cat {} +; } | LC_ALL=C grep -a -c -E '/Users/user|-Users-user|user|gmail\.com') | screen.txt in any tree: $(git rev-list --all --objects | grep -c 'screen\.txt$') | system files: $(git rev-list --all --objects | grep -c -E '\.DS_Store|__pycache__|\.pyc$|Thumbs\.db|desktop\.ini|__MACOSX') | unreachable objects: $(git fsck --unreachable --no-reflogs 2>/dev/null | wc -l | tr -d ' ') | identities: $(git log --all --format='%an <%ae>, %cn <%ce>' | sort -u | tr '\n' ' ')"
+bash ~/Documents/onbudget-publish/check_copy.sh
 ```
 
 A clean copy prints four zeros and the one identity, `Sebastian Drazsky <sebastian@sebastiandrazsky.com>`.
