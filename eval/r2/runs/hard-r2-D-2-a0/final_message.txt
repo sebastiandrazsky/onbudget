@@ -1,0 +1,24 @@
+Six of the seven tasks are done and their test suites pass. `werkzeug-cond` is not finished: 18 tests fail and some required pieces are missing.
+
+Several agents lost Bash access partway through, so I ran each suite and the key checks myself.
+
+- **boltons**: all six bugs are fixed and 446 tests pass. I didn't diff `frange` against its old output; `xfrange` was compared with `frange` over 20,000 random inputs.
+- **falcon**: `set_error_reporter` is added to both app classes, and the full suite passes (4146 passed). I wrote the news fragment and checked the 404 and handler-to-`HTTPStatus` cases on both WSGI and ASGI. No dedicated tests were added for the other reporter rules (the same exception re-raised, a failing serializer, bad status or header, WebSocket errors), and those paths are untested.
+- **markdown-it-py**: `mdTrim`, `MD_TRIM_CHARS` and `MD_TRIM_RE` are added and used at the listed call sites; 1016 tests pass. Paragraphs, headings, setext headings, table cells, reference labels and fence info strings all behave as specified.
+- **pluggy**: a value passed in the call now beats the hookspec default, which beats the hookimpl default, for all three hookimpl kinds. Docs and changelog fragment are added, and 201 tests pass. A hookimpl that declares a defaulted argument as positional-only would break, and I didn't run the benchmark.
+- **pydantic-settings**: CLI collection detection now covers `Sequence`/`Set`/`Mapping` subtypes. I checked tuple, frozenset, deque, OrderedDict, MutableMapping, optional and positional variadic fields, and that `str` still takes a single value. I updated the error-message test and the docs; 655 tests pass. No new tests were added to the test suite for these cases.
+- **werkzeug**: the `ETag` class, the `ETagSet` rename, `Response.etag` and all the deprecations are in, with docs and tests; 994 tests pass.
+- **werkzeug-cond**: `apply_conditions`, `apply_range`, the `send_file` and `SharedDataMiddleware` refactors, and the deprecations are written. Still missing:
+  - the 18 failing tests, mostly existing tests that call the newly deprecated functions;
+  - tests for the new methods and the deprecations;
+  - the `CHANGES.rst` and `docs/quickstart.rst` updates.
+
+  I stopped because the budget was nearly used up.
+
+boltons: COMPLETE
+falcon: COMPLETE
+markdown-it-py: COMPLETE
+pluggy: COMPLETE
+pydantic-settings: COMPLETE
+werkzeug: COMPLETE
+werkzeug-cond: INCOMPLETE

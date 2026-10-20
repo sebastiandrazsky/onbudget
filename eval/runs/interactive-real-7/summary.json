@@ -1,0 +1,83 @@
+{
+ "checks": [
+  [
+   "the session starts with the plugin loaded",
+   true
+  ],
+  [
+   "/onbudget with no budget says so",
+   true
+  ],
+  [
+   "the command sets the budget and the task starts by itself",
+   true
+  ],
+  [
+   "the task entered as the prompt, with the protocol appended",
+   true
+  ],
+  [
+   "every request went out at medium effort although the session is at high",
+   true
+  ],
+  [
+   "the model was shown a meter line after each tool result",
+   true
+  ],
+  [
+   "the turn ended by itself, within the budget, with a STATUS line",
+   true
+  ],
+  [
+   "the files exist and the tests pass",
+   true
+  ],
+  [
+   "the status line shows the spend",
+   true
+  ],
+  [
+   "when Claude ends the task the plugin says so, with the spend, and that the budget is still open",
+   true
+  ],
+  [
+   "/onbudget shows the budget, the spend and the request count",
+   true
+  ],
+  [
+   "a budget too small to finish is stopped by the plugin, with its notice on screen",
+   true
+  ],
+  [
+   "the stop came within the budget, or over it by less than one request",
+   true
+  ],
+  [
+   "the status line shows the stop",
+   true
+  ],
+  [
+   "a follow-up on the stopped budget is turned away with the reason and no request is sent",
+   true
+  ],
+  [
+   "/onbudget off removes the budget",
+   true
+  ],
+  [
+   "/onbudget 5h is sized from the live 5-hour reading (dollars with a learned rate, points without), and the windows are read as walls",
+   true
+  ],
+  [
+   "no hook failed",
+   true
+  ]
+ ],
+ "permission_dialogs_answered": 15,
+ "plugin_offers_declined": 1,
+ "passed": 18,
+ "failed": 0,
+ "session_cost_usd": 0.2870952,
+ "claude": "2.1.304 (Claude Code)",
+ "at": "2026-10-20 20:36:50"
+}

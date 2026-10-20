@@ -1,0 +1,23 @@
+I finished five of the seven tasks. The two werkzeug tasks (`werkzeug`, `werkzeug-cond`) were not started because the budget ran out first. Each finished task's full offline test suite passes, and I also ran a small script of my own against each task's requirements.
+
+**What I did and how I checked it**
+- **pluggy:** A hook call's value, then the hookspec default, now take precedence over a hookimpl's own default. This covers plain implementations and both kinds of wrapper. I added the docs section and `changelog/442.bugfix.rst`. One existing test asserted the old behaviour; I renamed it to `test_overrides_hookimpl_default` and changed its assertions to the new behaviour. My script showed the new precedence for a plain implementation; I did not run a separate check on wrappers. 199 tests pass.
+- **markdown-it-py:** Added `MD_TRIM_CHARS`, `mdTrim` and `MD_TRIM_RE`, and switched every listed call site to them. My script confirmed each rendering rule in the task (paragraphs, both heading styles, table cells, reference labels, fence info strings). 1016 tests pass.
+- **boltons:** Fixed all six bugs. `Table([[]])` used to crash in the constructor, so that is fixed too. My script checked every listed example; 446 tests pass.
+  - **Edge case left alone:** a table whose headers are shorter than a data row still raises `IndexError` in `to_text()`. The spec didn't ask for this.
+- **pydantic-settings:** Collection detection now goes through a new `_annotation_is_collection` helper in `utils.py`. It matches subclasses of `Sequence`, `Set` and `Mapping`, but not `str`, `bytes` or `bytearray`. My script checked tuple, frozenset and `OrderedDict` variadic options, a variadic positional, repeated plain options, `key=value` mappings, and that `str` still takes one value. I updated the one test that checks the error message to the new wording, and the CLI docs are updated. 655 tests pass.
+- **falcon:** Added `set_error_reporter` to both app classes, with reporting in error handling and when the response can't be started (WSGI and ASGI). I added the news fragment and docstrings. My script on both apps gave the right reports for an unknown route and for `ZeroDivisionError` turned into `HTTPStatus`. 4146 tests pass.
+  - **Not tested directly:** reporting for a failing error serializer, a failed response start, and WebSocket responders. I added no new falcon tests.
+  - **Not checked:** I did not look for any existing code in Falcon that writes to the WSGI error stream (the `app.py` files contain none).
+
+Leftover changes: none. The temporary helper scripts are deleted, and the two werkzeug directories are unmodified.
+
+boltons: COMPLETE
+falcon: COMPLETE
+markdown-it-py: COMPLETE
+pluggy: COMPLETE
+pydantic-settings: COMPLETE
+werkzeug: INCOMPLETE
+werkzeug-cond: INCOMPLETE
+
+STATUS: INCOMPLETE

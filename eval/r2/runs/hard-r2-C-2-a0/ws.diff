@@ -1,0 +1,1284 @@
+--- a/boltons/boltons/iterutils.py
++++ b/boltons/boltons/iterutils.py
+@@ -526,8 +526,9 @@
+     else:
+         # swap when all args are used
+         stop, start = start * 1.0, stop * 1.0
++    count = int(math.ceil((stop - start) / step))
+     cur = start
+-    while cur < stop:
++    for _ in range(count):
+         yield cur
+         cur += step
+ 
+--- a/boltons/boltons/jsonutils.py
++++ b/boltons/boltons/jsonutils.py
+@@ -156,7 +156,7 @@
+             raise ValueError("'rel_seek' expected a float between"
+                              " -1.0 and 1.0, not %r" % rel_seek)
+         elif rel_seek < 0:
+-            rel_seek = 1.0 - rel_seek
++            rel_seek = 1.0 + rel_seek
+         self._rel_seek = rel_seek
+         self._blocksize = 4096
+         if rel_seek is not None:
+@@ -180,11 +180,12 @@
+         cur_pos = fo.tell()
+         while '\n' not in cur:
+             cur = fo.read(bsize)
++            if not cur:
++                # no newline before the end of the file, nothing to iterate
++                fo.seek(0, os.SEEK_END)
++                return
+             total_read += bsize
+-        try:
+-            newline_offset = cur.index('\n') + total_read - bsize
+-        except ValueError:
+-            raise  # TODO: seek to end?
++        newline_offset = cur.index('\n') + total_read - bsize
+         fo.seek(cur_pos + newline_offset)
+ 
+     def _init_rel_seek(self):
+--- a/boltons/boltons/strutils.py
++++ b/boltons/boltons/strutils.py
+@@ -1230,6 +1230,8 @@
+         Given an input string, run all substitutions given in the
+         constructor.
+         """
++        if not self.group_map:
++            return text
+         return self.combined_pattern.sub(self._get_value, text)
+ 
+ 
+--- a/boltons/boltons/tableutils.py
++++ b/boltons/boltons/tableutils.py
+@@ -290,7 +290,7 @@
+         if self.headers:
+             self._width = len(self.headers)
+             return
+-        self._width = max([len(d) for d in self._data])
++        self._width = max([len(d) for d in self._data], default=0)
+ 
+     def _fill(self):
+         width, filler = self._width, [None]
+@@ -565,14 +565,22 @@
+         """
+         lines = []
+         widths = []
+-        headers = list(self.headers)
++        headers = list(self.headers or [])
++        if not headers:
++            with_headers = False
++        if len(headers) < self._width:
++            headers.extend([None] * (self._width - len(headers)))
++        headers = [to_text(h, maxlen=maxlen) for h in headers]
+         text_data = [[to_text(cell, maxlen=maxlen) for cell in row]
+                      for row in self._data]
+         for idx in range(self._width):
+-            cur_widths = [len(row[idx]) for row in text_data]
++            cur_widths = [len(row[idx]) for row in text_data
++                          if idx < len(row)]
+             if with_headers:
+-                cur_widths.append(len(to_text(headers[idx], maxlen=maxlen)))
+-            widths.append(max(cur_widths))
++                cur_widths.append(len(headers[idx]))
++            widths.append(max(cur_widths or [0]))
++        if not widths:
++            return ''
+         if with_headers:
+             lines.append(' | '.join([h.center(widths[i])
+                                      for i, h in enumerate(headers)]))
+--- a/boltons/boltons/timeutils.py
++++ b/boltons/boltons/timeutils.py
+@@ -117,7 +117,11 @@
+     .. _dateutil: https://pypi.python.org/pypi/python-dateutil
+ 
+     """
+-    dt_args = [int(p) for p in _NONDIGIT_RE.split(iso_str)]
++    main, sep, frac = iso_str.partition('.')
++    dt_args = [int(p) for p in _NONDIGIT_RE.split(main)]
++    if sep:
++        # fractional seconds are a decimal fraction, truncated to microseconds
++        dt_args.append(int(frac[:6].ljust(6, '0')))
+     return datetime(*dt_args)
+ 
+ 
+@@ -366,21 +370,35 @@
+     
+     m_step += y_step * 12
+ 
+-    if stop is None:
+-        finished = lambda now, stop: False
+-    elif start <= stop:
+-        finished = operator.gt if inclusive else operator.ge
+-    else:
+-        finished = operator.lt if inclusive else operator.le
+-    now = start
+-
+-    while not finished(now, stop):
+-        yield now
++    def _advance(now):
+         if m_step:
+             m_y_step, cur_month = divmod((now.month - 1) + m_step, 12)
+             now = now.replace(year=now.year + m_y_step,
+                               month=(cur_month + 1))
+-        now = now + d_step
++        return now + d_step
++
++    first = _advance(start)
++    if first == start:
++        raise ValueError('step must advance the date, not: %r' % (step,))
++    forward = first > start
++
++    if stop is None:
++        finished = lambda now, stop: False
++    elif forward:
++        finished = operator.gt if inclusive else operator.ge
++    else:
++        finished = operator.lt if inclusive else operator.le
++    return _daterange(start, stop, finished, forward, _advance, step)
++
++
++def _daterange(now, stop, finished, forward, advance, step):
++    while not finished(now, stop):
++        yield now
++        nxt = advance(now)
++        if (nxt > now) != forward or nxt == now:
++            raise ValueError('step must consistently advance the date,'
++                             ' not: %r' % (step,))
++        now = nxt
+     return
+ 
+ 
+--- a/markdown-it-py/markdown_it/common/utils.py
++++ b/markdown-it-py/markdown_it/common/utils.py
+@@ -250,11 +250,26 @@
+     return ch in MD_ASCII_PUNCT
+ 
+ 
++# Characters removed by JavaScript's ``String.prototype.trim``, minus U+FEFF.
++# Unlike ``str.isspace()``, this excludes U+001C..U+001F and U+0085.
++MD_TRIM_CHARS = (
++    "\t\n\v\f\r \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005"
++    "\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000"
++)
++
++MD_TRIM_RE = re.compile("[" + re.escape(MD_TRIM_CHARS) + "]+")
++
++
++def mdTrim(string: str) -> str:
++    """Strip leading and trailing whitespace like JavaScript's ``trim``."""
++    return string.strip(MD_TRIM_CHARS)
++
++
+ def normalizeReference(string: str) -> str:
+     """Helper to unify [reference labels]."""
+     # Trim and collapse whitespace
+     #
+-    string = re.sub(r"\s+", " ", string.strip())
++    string = MD_TRIM_RE.sub(" ", mdTrim(string))
+ 
+     # In node v10 'ẞ'.toLowerCase() === 'Ṿ', which is presumed to be a bug
+     # fixed in v12 (couldn't find any details).
+--- a/markdown-it-py/markdown_it/renderer.py
++++ b/markdown-it-py/markdown_it/renderer.py
+@@ -12,7 +12,7 @@
+ import inspect
+ from typing import Any, ClassVar, Protocol
+ 
+-from .common.utils import escapeHtml, unescapeAll
++from .common.utils import MD_TRIM_RE, escapeHtml, mdTrim, unescapeAll
+ from .token import Token
+ from .utils import EnvType, OptionsDict
+ 
+@@ -268,12 +268,12 @@
+         env: EnvType,
+     ) -> str:
+         token = tokens[idx]
+-        info = unescapeAll(token.info).strip() if token.info else ""
++        info = mdTrim(unescapeAll(token.info)) if token.info else ""
+         langName = ""
+         langAttrs = ""
+ 
+         if info:
+-            arr = info.split(maxsplit=1)
++            arr = MD_TRIM_RE.split(info, maxsplit=1)
+             langName = arr[0]
+             if len(arr) == 2:
+                 langAttrs = arr[1]
+--- a/markdown-it-py/markdown_it/rules_block/heading.py
++++ b/markdown-it-py/markdown_it/rules_block/heading.py
+@@ -4,7 +4,7 @@
+ 
+ import logging
+ 
+-from ..common.utils import isStrSpace
++from ..common.utils import isStrSpace, mdTrim
+ from .state_block import StateBlock
+ 
+ LOGGER = logging.getLogger(__name__)
+@@ -62,7 +62,7 @@
+     token.map = [startLine, state.line]
+ 
+     token = state.push("inline", "", 0)
+-    token.content = state.src[pos:maximum].strip()
++    token.content = mdTrim(state.src[pos:maximum])
+     token.map = [startLine, state.line]
+     token.children = []
+ 
+--- a/markdown-it-py/markdown_it/rules_block/lheading.py
++++ b/markdown-it-py/markdown_it/rules_block/lheading.py
+@@ -1,6 +1,7 @@
+ # lheading (---, ==)
+ import logging
+ 
++from ..common.utils import mdTrim
+ from .state_block import StateBlock
+ 
+ LOGGER = logging.getLogger(__name__)
+@@ -65,7 +66,7 @@
+         # Didn't find valid underline
+         return False
+ 
+-    content = state.getLines(startLine, nextLine, state.blkIndent, False).strip()
++    content = mdTrim(state.getLines(startLine, nextLine, state.blkIndent, False))
+ 
+     state.line = nextLine + 1
+ 
+--- a/markdown-it-py/markdown_it/rules_block/paragraph.py
++++ b/markdown-it-py/markdown_it/rules_block/paragraph.py
+@@ -2,6 +2,7 @@
+ 
+ import logging
+ 
++from ..common.utils import mdTrim
+ from .state_block import StateBlock
+ 
+ LOGGER = logging.getLogger(__name__)
+@@ -47,7 +48,7 @@
+ 
+         nextLine += 1
+ 
+-    content = state.getLines(startLine, nextLine, state.blkIndent, False).strip()
++    content = mdTrim(state.getLines(startLine, nextLine, state.blkIndent, False))
+ 
+     state.line = nextLine
+ 
+--- a/markdown-it-py/markdown_it/rules_block/table.py
++++ b/markdown-it-py/markdown_it/rules_block/table.py
+@@ -3,7 +3,7 @@
+ 
+ import re
+ 
+-from ..common.utils import charStrAt, isStrSpace
++from ..common.utils import charStrAt, isStrSpace, mdTrim
+ from .state_block import StateBlock
+ 
+ headerLineRe = re.compile(r"^:?-+:?$")
+@@ -108,7 +108,7 @@
+     columns = lineText.split("|")
+     aligns = []
+     for i in range(len(columns)):
+-        t = columns[i].strip()
++        t = mdTrim(columns[i])
+         if not t:
+             # allow empty columns before and after table, but not in between columns;
+             # e.g. allow ` |---| `, disallow ` ---||--- `
+@@ -126,7 +126,7 @@
+         else:
+             aligns.append("")
+ 
+-    lineText = getLine(state, startLine).strip()
++    lineText = mdTrim(getLine(state, startLine))
+     if "|" not in lineText:
+         return False
+     if state.is_code_block(startLine):
+@@ -171,7 +171,7 @@
+         # note in markdown-it this map was removed in v12.0.0 however, we keep it,
+         # since it is helpful to propagate to children tokens
+         token.map = [startLine, startLine + 1]
+-        token.content = columns[i].strip()
++        token.content = mdTrim(columns[i])
+         token.children = []
+ 
+         token = state.push("th_close", "th", -1)
+@@ -193,7 +193,7 @@
+ 
+         if terminate:
+             break
+-        lineText = getLine(state, nextLine).strip()
++        lineText = mdTrim(getLine(state, nextLine))
+         if not lineText:
+             break
+         if state.is_code_block(nextLine):
+@@ -227,7 +227,7 @@
+             # since it is helpful to propagate to children tokens
+             token.map = [nextLine, nextLine + 1]
+             try:
+-                token.content = columns[i].strip() if columns[i] else ""
++                token.content = mdTrim(columns[i]) if columns[i] else ""
+             except IndexError:
+                 token.content = ""
+             token.children = []
+--- a/pluggy/changelog/442.bugfix.rst
++++ b/pluggy/changelog/442.bugfix.rst
+@@ -0,0 +1,2 @@
++A value passed by a hook call, or a hookspec's default value, now takes precedence over a default declared by a hookimpl for the same argument.
++The hookimpl's own default is only used when neither the call nor the hookspec provides the argument.
+--- a/pluggy/docs/index.rst
++++ b/pluggy/docs/index.rst
+@@ -639,6 +639,26 @@
+     pm.hook.myhook(config=config, args=args)
+     # New caller; hookimpls will get new_arg="get this".
+     pm.hook.myhook(config=config, args=args, new_arg="get this")
++
++.. _hookimpl_arg_default:
++
++Hookimpl argument defaults
++^^^^^^^^^^^^^^^^^^^^^^^^^^
++A hookimpl may also declare a default value for an argument. The value a
++hookimpl receives is chosen in this order:
++
++1. the value passed by the hook call,
++2. the hookspec's default value for the argument,
++3. the hookimpl's own default value.
++
++The hookimpl's default is therefore only used when neither the call nor the
++hookspec provides the argument, for example when a newer hookimpl runs
++against an older hookspec that does not have the argument yet. This applies
++to plain hookimpls as well as to wrappers and old-style hookwrappers.
++
++.. versionchanged:: 1.7
++    Previously a hookimpl's default value was always used, even when the hook
++    call passed a value for the argument.
+ 
+ 
+ .. _firstresult:
+--- a/pluggy/src/pluggy/_execution.py
++++ b/pluggy/src/pluggy/_execution.py
+@@ -25,15 +25,18 @@
+ 
+ 
+ def run_old_style_hookwrapper(
+-    hook_impl: HookImpl, hook_name: str, args: Sequence[object]
++    hook_impl: HookImpl,
++    hook_name: str,
++    args: Sequence[object],
++    kwargs: Mapping[str, object] | None = None,
+ ) -> Teardown:
+     """
+     backward compatibility wrapper to run a old style hookwrapper as a wrapper
+     """
+     if TYPE_CHECKING:
+-        teardown = cast(Teardown, hook_impl.function(*args))
++        teardown = cast(Teardown, hook_impl.function(*args, **(kwargs or {})))
+     else:
+-        teardown = hook_impl.function(*args)
++        teardown = hook_impl.function(*args, **(kwargs or {}))
+     try:
+         next(teardown)
+     except StopIteration:
+@@ -102,15 +105,24 @@
+                 raise HookCallError(
+                     f"hook call must provide argument {e.args[0]!r}"
+                 ) from e
++            # Values passed by the call (or hookspec defaults) take precedence
++            # over the hookimpl's own defaults.
++            kwargs = {
++                name: caller_kwargs[name]
++                for name in hook_impl.kwargnames
++                if name in caller_kwargs
++            }
+ 
+             if hook_impl.hookwrapper:
+-                function_gen = run_old_style_hookwrapper(hook_impl, hook_name, args)
++                function_gen = run_old_style_hookwrapper(
++                    hook_impl, hook_name, args, kwargs
++                )
+ 
+                 next(function_gen)  # first yield
+                 teardowns.append(function_gen)
+ 
+             elif hook_impl.wrapper:
+-                res = hook_impl.function(*args)
++                res = hook_impl.function(*args, **kwargs)
+                 # If this cast is not valid, a type error is raised below,
+                 # which is the desired response.
+                 if TYPE_CHECKING:
+@@ -123,7 +135,7 @@
+                     _raise_wrapfail(function_gen, "did not yield")
+                 teardowns.append(function_gen)
+             else:
+-                res = hook_impl.function(*args)
++                res = hook_impl.function(*args, **kwargs)
+                 if res is not None:
+                     results.append(res)
+                     if firstresult:  # halt further impl calls
+--- a/pluggy/testing/test_invocations.py
++++ b/pluggy/testing/test_invocations.py
+@@ -448,13 +448,9 @@
+ 
+         assert pm.hook.hello(arg=1) == [(1, "impl-default")]
+ 
+-    def test_does_not_override_hookimpl_default(self, pm: PluginManager) -> None:
+-        """If an impl provides its own default, it takes precedence over both
+-        the spec default and call value.
+-
+-        NOTE: This is verifying existing behavior, but it's not necessarily what
+-        we want (#442).
+-        """
++    def test_call_and_spec_override_hookimpl_default(self, pm: PluginManager) -> None:
++        """The call value and the spec default take precedence over an impl's
++        own default (#442)."""
+ 
+         class Api:
+             @hookspec
+@@ -469,8 +465,8 @@
+         pm.add_hookspecs(Api)
+         pm.register(Plugin())
+ 
+-        assert pm.hook.hello(arg=1) == ["impl-default"]
+-        assert pm.hook.hello(arg=1, new_arg="call") == ["impl-default"]
++        assert pm.hook.hello(arg=1) == ["spec-default"]
++        assert pm.hook.hello(arg=1, new_arg="call") == ["call"]
+ 
+     def test_new_call_argument_is_not_delivered_by_old_spec(
+         self, pm: PluginManager
+--- a/pydantic-settings/docs/index.md
++++ b/pydantic-settings/docs/index.md
+@@ -1169,6 +1169,16 @@
+ List fields are repeated options by default (`--param a --param b`). Wrap a collection
+ field in `CliVariadicArg` to accept remaining values after a single option
+ (`--param a b c`).
++
++A collection field is any `collections.abc.Sequence`, `Set` or `Mapping` subtype, parameterized
++or bare, optionally inside `X | None`: for example `list`, `tuple`, `set`, `frozenset`, `deque`,
++`MutableSequence`, `dict`, `OrderedDict` or `MutableMapping`. These fields are repeated options
++whose values are merged (`--values a --values b` gives `('a', 'b')` for a `tuple[str, ...]`
++field), and `CliVariadicArg` accepts all of them, for named options and positional arguments
++alike. The parsed value has the field's own type. Mapping subtypes take `key=value` items like
++`dict`. `str`, `bytes` and `bytearray` are not treated as collections and keep taking a single
++value. Using `CliVariadicArg` on any other type raises
++`CliVariadicArg requires a Sequence, Set, or Mapping type for <dest>`.
+ 
+ Repeating the option **replaces** the previous values (`--param a b --param c` becomes
+ `['c']`), which is the opposite of `action=append`. `nargs='*'` is greedy: it consumes
+--- a/pydantic-settings/pydantic_settings/sources/providers/cli.py
++++ b/pydantic-settings/pydantic_settings/sources/providers/cli.py
+@@ -63,7 +63,9 @@
+ )
+ from ..utils import (
+     InitState,
++    _annotation_contains_collection,
+     _annotation_contains_types,
++    _is_collection_type,
+     _annotation_enum_val_to_name,
+     _get_alias_names,
+     _get_model_fields,
+@@ -277,9 +279,7 @@
+ 
+     @cached_property
+     def is_append_action(self) -> bool:
+-        return not self.subcommand_dest and _annotation_contains_types(
+-            self.field_info.annotation, (list, set, dict, Sequence, Mapping), is_strip_annotated=True
+-        )
++        return not self.subcommand_dest and _annotation_contains_collection(self.field_info.annotation)
+ 
+     @cached_property
+     def is_parser_submodel(self) -> bool:
+@@ -701,7 +701,7 @@
+             or not any(
+                 type_
+                 for type_ in get_args(merge_type)
+-                if type_ is not type(None) and get_origin(type_) not in (dict, Mapping)
++                if type_ is not type(None) and not _is_collection_type(type_, is_mapping_only=True)
+             )
+         ):
+             inferred_type = merge_type
+@@ -880,9 +880,7 @@
+                 alias_names, *_ = _get_alias_names(field_name, field_info)
+                 if len(alias_names) > 1:
+                     raise SettingsError(f'positional argument {model.__name__}.{field_name} has multiple aliases')
+-                is_append_action = _annotation_contains_types(
+-                    field_info.annotation, (list, set, dict, Sequence, Mapping), is_strip_annotated=True
+-                )
++                is_append_action = _annotation_contains_collection(field_info.annotation)
+                 if not is_append_action:
+                     positional_args.append((field_name, field_info))
+                 else:
+@@ -1210,7 +1208,7 @@
+     def _convert_append_action(self, kwargs: dict[str, Any], field_info: FieldInfo, is_append_action: bool) -> None:
+         if _CliVariadicArg in field_info.metadata and not is_append_action:
+             raise SettingsError(
+-                f'CliVariadicArg requires a list, set, dict, Sequence, or Mapping type for {kwargs["dest"]}'
++                f'CliVariadicArg requires a Sequence, Set, or Mapping type for {kwargs["dest"]}'
+             )
+         if is_append_action:
+             if _CliVariadicArg in field_info.metadata:
+@@ -1219,7 +1217,7 @@
+                 kwargs['nargs'] = '+' if kwargs.get('required') else '*'
+             else:
+                 kwargs['action'] = 'append'
+-            if _annotation_contains_types(field_info.annotation, (dict, Mapping), is_strip_annotated=True):
++            if _annotation_contains_collection(field_info.annotation, is_mapping_only=True):
+                 self._cli_dict_args[kwargs['dest']] = field_info.annotation
+ 
+     def _convert_bool_flag(self, kwargs: dict[str, Any], field_info: FieldInfo, model_default: Any) -> None:
+--- a/pydantic-settings/pydantic_settings/sources/utils.py
++++ b/pydantic-settings/pydantic_settings/sources/utils.py
+@@ -223,6 +223,29 @@
+             if any(isinstance(m, Strict) for m in meta):
+                 return True
+     return False
++
++
++def _is_collection_type(annotation: Any, is_mapping_only: bool = False) -> bool:
++    """Check if an annotation (bare or parameterized) is a Sequence, Set or Mapping type.
++
++    `str`, `bytes` and `bytearray` are not considered collections.
++    """
++    type_ = get_origin(annotation) or annotation
++    if not isinstance(type_, type):
++        return False
++    if is_mapping_only:
++        return issubclass(type_, Mapping)
++    if issubclass(type_, (str, bytes, bytearray)):
++        return False
++    return issubclass(type_, (Sequence, AbstractSet, Mapping))
++
++
++def _annotation_contains_collection(annotation: Any, is_mapping_only: bool = False) -> bool:
++    """Check if a type annotation contains a Sequence, Set or Mapping type (see `_is_collection_type`)."""
++    annotation = _strip_annotated(annotation)
++    if _is_collection_type(annotation, is_mapping_only):
++        return True
++    return any(_annotation_contains_collection(type_, is_mapping_only) for type_ in get_args(annotation))
+ 
+ 
+ def _annotation_contains_types(
+@@ -384,7 +407,9 @@
+ 
+ __all__ = [
+     'InitState',
++    '_annotation_contains_collection',
+     '_annotation_contains_types',
++    '_is_collection_type',
+     '_annotation_enum_name_to_val',
+     '_annotation_enum_val_to_name',
+     '_annotation_is_complex',
+--- a/pydantic-settings/tests/test_source_cli.py
++++ b/pydantic-settings/tests/test_source_cli.py
+@@ -2019,7 +2019,7 @@
+ 
+ 
+ def test_cli_variadic_non_collection_raises():
+-    with pytest.raises(SettingsError, match='CliVariadicArg requires a list, set, dict, Sequence, or Mapping type'):
++    with pytest.raises(SettingsError, match='CliVariadicArg requires a Sequence, Set, or Mapping type for param'):
+ 
+         class Settings(BaseSettings, cli_parse_args=True):
+             param: CliVariadicArg[str]
+--- a/werkzeug/CHANGES.rst
++++ b/werkzeug/CHANGES.rst
+@@ -10,6 +10,11 @@
+         The base ``MultiDict`` already retains order.
+ 
+ -   Minimum required version of MarkupSafe is 3.0.3.
++-   Add the ``ETag`` datastructure for a single ETag value, and the
++    ``Response.etag`` property that gets and sets it. ``ETags`` is renamed
++    to ``ETagSet``; the old name is deprecated. ``Response.get_etag``,
++    ``Response.set_etag``, ``http.quote_etag`` and ``http.unquote_etag``
++    are deprecated in favor of ``ETag`` and ``Response.etag``.
+ -   Minimum supported version of Watchdog is 6.0.
+ -   The CSP ``prefetch_src``, ``navigate_to``, and ``plugin_types`` properties
+     are deprecated. Their corresponding directives have been deprecated or
+--- a/werkzeug/docs/datastructures.rst
++++ b/werkzeug/docs/datastructures.rst
+@@ -67,7 +67,10 @@
+ .. autoclass:: ContentSecurityPolicy
+     :members:
+ 
+-.. autoclass:: ETags
++.. autoclass:: ETag
++    :members:
++
++.. autoclass:: ETagSet
+     :members:
+ 
+     .. automethod:: __call__
+--- a/werkzeug/src/werkzeug/datastructures/__init__.py
++++ b/werkzeug/src/werkzeug/datastructures/__init__.py
+@@ -10,7 +10,8 @@
+ from .cache_control import RequestCacheControl as RequestCacheControl
+ from .cache_control import ResponseCacheControl as ResponseCacheControl
+ from .csp import ContentSecurityPolicy as ContentSecurityPolicy
+-from .etag import ETags as ETags
++from .etag import ETag as ETag
++from .etag import ETagSet as ETagSet
+ from .file_storage import FileMultiDict as FileMultiDict
+ from .file_storage import FileStorage as FileStorage
+ from .headers import EnvironHeaders as EnvironHeaders
+@@ -31,6 +32,15 @@
+ 
+     def __getattr__(name: str) -> t.Any:
+         import warnings
++
++        if name == "ETags":
++            warnings.warn(
++                "'ETags' has been renamed to 'ETagSet'. The old name is"
++                " deprecated and will be removed in Werkzeug 3.3.",
++                DeprecationWarning,
++                stacklevel=2,
++            )
++            return ETagSet
+ 
+         if name == "CharsetAccept":
+             from .accept import _CharsetAccept
+--- a/werkzeug/src/werkzeug/datastructures/etag.py
++++ b/werkzeug/src/werkzeug/datastructures/etag.py
+@@ -20,7 +20,103 @@
+ )
+ 
+ 
+-class ETags(cabc.Collection[str]):
++class ETag:
++    """A single ETag value, as used by the ``ETag`` header.
++
++    :attr:`.Response.etag` returns an instance.
++
++    :param value: The unquoted value.
++    :param weak: Whether the ETag is weak.
++
++    .. versionadded:: 3.2
++    """
++
++    def __init__(self, value: str, weak: bool = False) -> None:
++        self._value = value
++        self._weak = weak
++        self._on_update: cabc.Callable[[ETag], None] | None = None
++
++    @property
++    def value(self) -> str:
++        """The unquoted value."""
++        return self._value
++
++    @value.setter
++    def value(self, value: str) -> None:
++        self._value = value
++        self._update()
++
++    @property
++    def weak(self) -> bool:
++        """Whether the ETag is weak."""
++        return self._weak
++
++    @weak.setter
++    def weak(self, value: bool) -> None:
++        self._weak = value
++        self._update()
++
++    def _update(self) -> None:
++        if self._on_update is not None:
++            self._on_update(self)
++
++    @classmethod
++    def from_header(cls, value: str | None) -> te.Self | None:
++        """Parse a quoted ETag value with an optional ``W/`` prefix. Returns
++        ``None`` if the value is empty or invalid (unquoted).
++
++        :param value: The header value to parse.
++        """
++        if not value:
++            return None
++
++        weak = False
++        start = 0
++
++        if value.startswith(("W/", "w/")):
++            weak = True
++            start = 2
++
++        if len(value) < start + 2 or not (
++            value.startswith('"', start) and value.endswith('"')
++        ):
++            return None
++
++        return cls(value[start + 1 : -1], weak)
++
++    def to_header(self) -> str:
++        """Produce the quoted header value. Returns an empty string if the value
++        is empty or contains a double quote.
++        """
++        if not self._value or '"' in self._value:
++            return ""
++
++        if self._weak:
++            return f'W/"{self._value}"'
++
++        return f'"{self._value}"'
++
++    def __eq__(self, other: object) -> bool:
++        if not isinstance(other, ETag):
++            return NotImplemented
++
++        return self._value == other._value and self._weak == other._weak
++
++    def __hash__(self) -> int:
++        return hash((self._value, self._weak))
++
++    def __bool__(self) -> bool:
++        return bool(self._value)
++
++    def __str__(self) -> str:
++        return self.to_header()
++
++    def __repr__(self) -> str:
++        kind = "weak" if self._weak else "strong"
++        return f"<{type(self).__name__} {self._value!r} {kind}>"
++
++
++class ETagSet(cabc.Collection[str]):
+     """A parsed ``If-Match`` or ``If-None-Match`` header.
+ 
+     :attr:`.Request.if_match` and :attr:`.Request.if_none_match` return an
+@@ -102,17 +198,13 @@
+ 
+         :param etag: The raw, quoted value to check.
+         """
+-        from ..http import unquote_etag
+-
+-        value, weak = unquote_etag(etag)
+-
+-        if value is None or weak is None:
++        if (value := ETag.from_header(etag)) is None:
+             return False
+ 
+-        if weak:
+-            return self.contains_weak(value)
+-
+-        return self.contains(value)
++        if value.weak:
++            return self.contains_weak(value.value)
++
++        return self.contains(value.value)
+ 
+     @classmethod
+     def from_header(cls, value: str | None) -> te.Self:
+--- a/werkzeug/src/werkzeug/datastructures/range.py
++++ b/werkzeug/src/werkzeug/datastructures/range.py
+@@ -8,8 +8,6 @@
+ from ..http import http_date
+ from ..http import is_byte_range_valid
+ from ..http import parse_date
+-from ..http import quote_etag
+-from ..http import unquote_etag
+ 
+ if t.TYPE_CHECKING:
+     import typing_extensions as te
+@@ -49,19 +47,26 @@
+         if (date := parse_date(value)) is not None:
+             return cls(date=date)
+ 
+-        value, weak = unquote_etag(value)
+-
+-        if weak:
+-            return cls()
+-
+-        return cls(etag=value)
++        from .etag import ETag
++
++        etag = ETag.from_header(value)
++
++        if etag is None:
++            return cls(etag=None)
++
++        if etag.weak:
++            return cls()
++
++        return cls(etag=etag.value)
+ 
+     def to_header(self) -> str:
+         """Convert to an ``If-Range`` header value."""
+         if self.date is not None:
+             return http_date(self.date)
+         if self.etag is not None:
+-            return quote_etag(self.etag)
++            from .etag import ETag
++
++            return ETag(self.etag).to_header()
+         return ""
+ 
+     def __bool__(self) -> bool:
+--- a/werkzeug/src/werkzeug/http.py
++++ b/werkzeug/src/werkzeug/http.py
+@@ -1031,7 +1031,18 @@
+ 
+     :param etag: The ETag to quote.
+     :param weak: Add a weak marker to the quoted value.
+-    """
++
++    .. deprecated:: 3.2
++        Will be removed in Werkzeug 3.3. Use ``ETag(value, weak).to_header()``
++        instead.
++    """
++    warnings.warn(
++        "'quote_etag' is deprecated and will be removed in Werkzeug 3.3. Use"
++        " 'ETag(value, weak).to_header()' instead.",
++        DeprecationWarning,
++        stacklevel=2,
++    )
++
+     if '"' in etag:
+         raise ValueError("Unquoted ETag value cannot contain double-quote character.")
+ 
+@@ -1060,53 +1071,52 @@
+         >>> unquote_etag('no_quotes')
+         (None, None)
+ 
+-    Use :meth:`.ETags.from_header` to parse a list of ETag values.
++    Use :meth:`.ETagSet.from_header` to parse a list of ETag values.
+ 
+     :param etag: A valid ETag to unquote.
+     :return: A tuple ``(value, weak)``, or ``(None, None)`` if the
+         value is empty or invalid.
+ 
++    .. deprecated:: 3.2
++        Will be removed in Werkzeug 3.3. Use ``ETag.from_header`` instead.
++
+     .. versionchanged:: 3.2
+         Does not accept invalid unquoted values.
+     """
+-    if not etag:
+-        return None, None
+-
+-    weak = False
+-    start = 0
+-
+-    if etag.startswith(("W/", "w/")):
+-        weak = True
+-        start = 2
+-
+-    if not (etag.startswith('"', start) and etag.endswith('"', start)):
+-        # invalid, value must be quoted
+-        return None, None
+-
+-    return etag[start + 1 : -1], weak
+-
+-
+-def _parse_etags(value: str | None) -> ds.ETags:
+-    """Parse an ETag header.
+-
+-    :param value: the tag header to parse
+-    :return: an :class:`~werkzeug.datastructures.ETags` object.
+-
+-    .. deprecated:: 3.2
+-        Will be removed in Werkzeug 3.3. Use the 'ETags.from_header' method instead.
+-
+-    .. versionchanged:: 3.2
+-        Does not accept invalid unquoted values.
+-    """
+-    import warnings
+-
+     warnings.warn(
+-        "The 'parse_etags' function is deprecated and will be removed in"
+-        " Werkzeug 3.3. Use the 'ETags.from_header' method instead.",
++        "'unquote_etag' is deprecated and will be removed in Werkzeug 3.3. Use"
++        " 'ETag.from_header' instead.",
+         DeprecationWarning,
+         stacklevel=2,
+     )
+-    return ds.ETags.from_header(value)
++
++    if (value := ds.ETag.from_header(etag)) is None:
++        return None, None
++
++    return value.value, value.weak
++
++
++def _parse_etags(value: str | None) -> ds.ETagSet:
++    """Parse an ETag header.
++
++    :param value: the tag header to parse
++    :return: an :class:`~werkzeug.datastructures.ETagSet` object.
++
++    .. deprecated:: 3.2
++        Will be removed in Werkzeug 3.3. Use the 'ETagSet.from_header' method instead.
++
++    .. versionchanged:: 3.2
++        Does not accept invalid unquoted values.
++    """
++    import warnings
++
++    warnings.warn(
++        "The 'parse_etags' function is deprecated and will be removed in"
++        " Werkzeug 3.3. Use the 'ETagSet.from_header' method instead.",
++        DeprecationWarning,
++        stacklevel=2,
++    )
++    return ds.ETagSet.from_header(value)
+ 
+ 
+ def generate_etag(data: bytes) -> str:
+@@ -1593,7 +1603,7 @@
+             "parse_cache_control_header": "CacheControl.from_header",
+             "parse_content_range_header": "ContentRange.from_header",
+             "parse_csp_header": "ContentSecurityPolicy.from_header",
+-            "parse_etags": "ETags.from_header",
++            "parse_etags": "ETagSet.from_header",
+             "parse_if_range_header": "IfRange.from_header",
+             "parse_range_header": "Range.from_header",
+             "parse_set_header": "HeaderSet.from_header",
+--- a/werkzeug/src/werkzeug/middleware/shared_data.py
++++ b/werkzeug/src/werkzeug/middleware/shared_data.py
+@@ -25,7 +25,7 @@
+ 
+ from ..http import http_date
+ from ..http import is_resource_modified
+-from ..http import quote_etag
++from ..datastructures import ETag
+ from ..security import safe_join
+ from ..utils import get_content_type
+ from ..wsgi import get_path_info
+@@ -258,7 +258,7 @@
+ 
+         if self.cache:
+             timeout = self.cache_timeout
+-            etag = quote_etag(self.generate_etag(mtime, file_size, real_filename))  # type: ignore
++            etag = ETag(self.generate_etag(mtime, file_size, real_filename)).to_header()  # type: ignore
+             headers += [
+                 ("ETag", etag),
+                 ("Cache-Control", f"max-age={timeout}, public"),
+--- a/werkzeug/src/werkzeug/sansio/http.py
++++ b/werkzeug/src/werkzeug/sansio/http.py
+@@ -7,7 +7,6 @@
+ from .._internal import _dt_as_utc
+ from ..http import generate_etag
+ from ..http import parse_date
+-from ..http import unquote_etag
+ 
+ 
+ def is_resource_modified(
+@@ -67,7 +66,8 @@
+         unmodified = True
+ 
+     if etag:
+-        etag, _ = unquote_etag(etag)
++        etag_obj = ds.ETag.from_header(etag)
++        etag = etag_obj.value if etag_obj is not None else None
+ 
+         if etag is None:
+             unmodified = False
+@@ -77,13 +77,13 @@
+             # https://tools.ietf.org/html/rfc7232#section-3.2
+             # "A recipient MUST use the weak comparison function when comparing
+             # entity-tags for If-None-Match"
+-            if if_none_match := ds.ETags.from_header(http_if_none_match):
++            if if_none_match := ds.ETagSet.from_header(http_if_none_match):
+                 unmodified = if_none_match.contains_weak(etag)
+ 
+             # https://tools.ietf.org/html/rfc7232#section-3.1
+             # "Origin server MUST use the strong comparison function when
+             # comparing entity-tags for If-Match"
+-            if if_match := ds.ETags.from_header(http_if_match):
++            if if_match := ds.ETagSet.from_header(http_if_match):
+                 unmodified = not if_match.is_strong(etag)
+ 
+     return not unmodified
+--- a/werkzeug/src/werkzeug/sansio/request.py
++++ b/werkzeug/src/werkzeug/sansio/request.py
+@@ -8,7 +8,7 @@
+ from .._header_property import header_property
+ from ..datastructures import Accept
+ from ..datastructures import Authorization
+-from ..datastructures import ETags
++from ..datastructures import ETagSet
+ from ..datastructures import Headers
+ from ..datastructures import HeaderSet
+ from ..datastructures import IfRange
+@@ -495,26 +495,26 @@
+         """,
+     )
+ 
+-    if_match = header_property[ETags](
++    if_match = header_property[ETagSet](
+         "If-Match",
+-        load_func=ETags.from_header,
++        load_func=ETagSet.from_header,
+         read_only=True,
+         doc="""The ``If-Match`` header. If the response's ETag is present in
+         this set, it returns ``412`` instead.
+ 
+-        An :class:`.ETags`, empty if not set.
+-        """,
+-    )
+-
+-    if_none_match = header_property[ETags](
++        An :class:`.ETagSet`, empty if not set.
++        """,
++    )
++
++    if_none_match = header_property[ETagSet](
+         "If-None-Match",
+-        load_func=ETags.from_header,
++        load_func=ETagSet.from_header,
+         read_only=True,
+         doc="""The ``If-None-Match`` header. If the response's ETag is present
+         in this set, it returns ``304`` for ``GET`` requests, or ``412`` for
+         other requests.
+ 
+-        An :class:`.ETags`, empty if not set.
++        An :class:`.ETagSet`, empty if not set.
+         """,
+     )
+ 
+--- a/werkzeug/src/werkzeug/sansio/response.py
++++ b/werkzeug/src/werkzeug/sansio/response.py
+@@ -1,6 +1,7 @@
+ from __future__ import annotations
+ 
+ import typing as t
++import warnings
+ from datetime import datetime
+ from datetime import timedelta
+ from http import HTTPStatus
+@@ -11,6 +12,7 @@
+ from ..datastructures import CallbackDict
+ from ..datastructures import ContentRange
+ from ..datastructures import ContentSecurityPolicy
++from ..datastructures import ETag
+ from ..datastructures import Headers
+ from ..datastructures import HeaderSet
+ from ..datastructures import ResponseCacheControl
+@@ -27,8 +29,6 @@
+ from ..http import parse_age
+ from ..http import parse_date
+ from ..http import parse_options_header
+-from ..http import quote_etag
+-from ..http import unquote_etag
+ from ..utils import get_content_type
+ 
+ 
+@@ -576,15 +576,86 @@
+         """,
+     )
+ 
++    @property
++    def etag(self) -> ETag | None:
++        """The ``ETag`` header, as an :class:`.ETag`, or ``None`` if the header
++        is missing or invalid. Modifying the ``value`` or ``weak`` attributes of
++        the returned object updates the header.
++
++        Can be set to an :class:`.ETag`, a ``(value, weak)`` tuple, or a
++        ``str`` meaning ``(value, False)``. Set to ``None`` or use ``del`` to
++        unset the header.
++
++        .. versionadded:: 3.2
++        """
++        value = ETag.from_header(self.headers.get("ETag"))
++
++        if value is not None:
++            value._on_update = self._set_etag_header
++
++        return value
++
++    @etag.setter
++    def etag(self, value: ETag | tuple[str, bool] | str | None) -> None:
++        if value is None:
++            del self.headers["ETag"]
++            return
++
++        if isinstance(value, str):
++            value = ETag(value)
++        elif isinstance(value, tuple):
++            value = ETag(*value)
++
++        if '"' in value.value:
++            raise ValueError(
++                "Unquoted ETag value cannot contain double-quote character."
++            )
++
++        self._set_etag_header(value)
++        value._on_update = self._set_etag_header
++
++    @etag.deleter
++    def etag(self) -> None:
++        del self.headers["ETag"]
++
++    def _set_etag_header(self, value: ETag) -> None:
++        if header := value.to_header():
++            self.headers["ETag"] = header
++        else:
++            del self.headers["ETag"]
++
+     def set_etag(self, etag: str, weak: bool = False) -> None:
+-        """Set the ETag, and override the old one if there was one."""
+-        self.headers["ETag"] = quote_etag(etag, weak)
++        """Set the ETag, and override the old one if there was one.
++
++        .. deprecated:: 3.2
++            Will be removed in Werkzeug 3.3. Use the ``etag`` property instead.
++        """
++        warnings.warn(
++            "'set_etag' is deprecated and will be removed in Werkzeug 3.3. Set"
++            " the 'etag' property instead.",
++            DeprecationWarning,
++            stacklevel=2,
++        )
++        self.etag = ETag(etag, weak)
+ 
+     def get_etag(self) -> tuple[str, bool] | tuple[None, None]:
+         """Return a tuple in the form ``(etag, is_weak)``.  If there is no
+         ETag the return value is ``(None, None)``.
++
++        .. deprecated:: 3.2
++            Will be removed in Werkzeug 3.3. Use the ``etag`` property instead.
+         """
+-        return unquote_etag(self.headers.get("ETag"))
++        warnings.warn(
++            "'get_etag' is deprecated and will be removed in Werkzeug 3.3. Use"
++            " the 'etag' property instead.",
++            DeprecationWarning,
++            stacklevel=2,
++        )
++
++        if (value := self.etag) is None:
++            return None, None
++
++        return value.value, value.weak
+ 
+     accept_ranges = header_property[str | None](
+         "Accept-Ranges",
+--- a/werkzeug/src/werkzeug/utils.py
++++ b/werkzeug/src/werkzeug/utils.py
+@@ -497,10 +497,10 @@
+         rv.expires = int(time() + max_age)  # type: ignore
+ 
+     if isinstance(etag, str):
+-        rv.set_etag(etag)
++        rv.etag = etag
+     elif etag and path is not None:
+         check = adler32(path.encode()) & 0xFFFFFFFF
+-        rv.set_etag(f"{mtime}-{size}-{check}")
++        rv.etag = f"{mtime}-{size}-{check}"
+ 
+     if conditional:
+         try:
+--- a/werkzeug/src/werkzeug/wrappers/response.py
++++ b/werkzeug/src/werkzeug/wrappers/response.py
+@@ -6,7 +6,7 @@
+ from urllib.parse import urljoin
+ 
+ from .._internal import _get_environ
+-from ..datastructures import ETags
++from ..datastructures import ETagSet
+ from ..datastructures import Headers
+ from ..datastructures import Range
+ from ..http import generate_etag
+@@ -779,7 +779,7 @@
+                 self.headers.get("ETag"),
+                 last_modified=self.headers.get("Last-Modified"),
+             ):
+-                if ETags.from_header(environ.get("HTTP_IF_MATCH")):
++                if ETagSet.from_header(environ.get("HTTP_IF_MATCH")):
+                     self.status_code = 412
+                 else:
+                     self.status_code = 304
+@@ -807,7 +807,7 @@
+             Use SHA-1.
+         """
+         if overwrite or "ETag" not in self.headers:
+-            self.set_etag(generate_etag(self.get_data()), weak)
++            self.etag = (generate_etag(self.get_data()), weak)
+ 
+ 
+ class ResponseStream:
+--- a/werkzeug/tests/test_http.py
++++ b/werkzeug/tests/test_http.py
+@@ -14,7 +14,8 @@
+ from werkzeug.datastructures import Authorization
+ from werkzeug.datastructures import ContentRange
+ from werkzeug.datastructures import ContentSecurityPolicy
+-from werkzeug.datastructures import ETags
++from werkzeug.datastructures import ETag
++from werkzeug.datastructures import ETagSet
+ from werkzeug.datastructures import HeaderSet
+ from werkzeug.datastructures import IfRange
+ from werkzeug.datastructures import LanguageAccept
+@@ -310,7 +311,7 @@
+         # assert http.quote_etag("foo", True) == 'W/"foo"'
+         # assert http.unquote_etag('"foo"') == ("foo", False)
+         # assert http.unquote_etag('W/"foo"') == ("foo", True)
+-        es = ETags.from_header('"foo", no_quotes, "bar", W/"baz"')
++        es = ETagSet.from_header('"foo", no_quotes, "bar", W/"baz"')
+         # assert sorted(es) == ["bar", "foo"]
+         # assert "foo" in es
+         # assert "baz" not in es
+@@ -324,7 +325,7 @@
+         ]
+ 
+     def test_etags_bool(self):
+-        etags = ETags.from_header('W/"foo"')
++        etags = ETagSet.from_header('W/"foo"')
+         assert bool(etags)
+         assert etags.contains_raw('W/"foo"')
+ 
+@@ -439,7 +440,7 @@
+         with pytest.raises(TypeError):
+             http.is_resource_modified(env, data=b"42", etag='"23"')
+ 
+-        etag = http.quote_etag(http.generate_etag(b"awesome"))
++        etag = ETag(http.generate_etag(b"awesome")).to_header()
+         env["HTTP_IF_NONE_MATCH"] = etag
+         assert not http.is_resource_modified(env, etag=etag)
+         assert not http.is_resource_modified(env, data=b"awesome")
+@@ -456,7 +457,7 @@
+         env = create_environ()
+ 
+         env["HTTP_IF_MODIFIED_SINCE"] = http.http_date(datetime(2008, 1, 1, 12, 30))
+-        env["HTTP_IF_RANGE"] = http.quote_etag(http.generate_etag(b"awesome_if_range"))
++        env["HTTP_IF_RANGE"] = ETag(http.generate_etag(b"awesome_if_range")).to_header()
+         # Range header not present, so If-Range should be ignored
+         assert not http.is_resource_modified(
+             env,
+--- a/werkzeug/tests/test_wrappers.py
++++ b/werkzeug/tests/test_wrappers.py
+@@ -12,6 +12,7 @@
+ from werkzeug import Response
+ from werkzeug import wrappers
+ from werkzeug.datastructures import Accept
++from werkzeug.datastructures import ETag
+ from werkzeug.datastructures import Headers
+ from werkzeug.datastructures import LanguageAccept
+ from werkzeug.datastructures import MIMEAccept
+@@ -514,9 +515,9 @@
+ 
+ def test_etag_response():
+     response = wrappers.Response("Hello World")
+-    assert response.get_etag() == (None, None)
++    assert response.etag is None
+     response.add_etag()
+-    assert response.get_etag() == ("4Wf2jWVj11uyXzqknCnvYS1BNS3ABgbefL1jC7JmX1E", False)
++    assert response.etag == ETag("4Wf2jWVj11uyXzqknCnvYS1BNS3ABgbefL1jC7JmX1E")
+     assert not response.cache_control
+     response.cache_control.must_revalidate = True
+     response.cache_control.max_age = 60
+@@ -557,9 +558,9 @@
+ 
+ def test_etag_response_412():
+     response = wrappers.Response("Hello World")
+-    assert response.get_etag() == (None, None)
++    assert response.etag is None
+     response.add_etag()
+-    assert response.get_etag() == ("4Wf2jWVj11uyXzqknCnvYS1BNS3ABgbefL1jC7JmX1E", False)
++    assert response.etag == ETag("4Wf2jWVj11uyXzqknCnvYS1BNS3ABgbefL1jC7JmX1E")
+     assert not response.cache_control
+     response.cache_control.must_revalidate = True
+     response.cache_control.max_age = 60
+@@ -687,7 +688,7 @@
+ def test_etag_response_freezing():
+     response = Response("Hello World")
+     response.freeze()
+-    assert response.get_etag() == (str(generate_etag(b"Hello World")), False)
++    assert response.etag == ETag(generate_etag(b"Hello World"))
+ 
+ 
+ def test_authenticate():

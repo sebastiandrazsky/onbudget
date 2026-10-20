@@ -1,0 +1,27 @@
+I'm stopping here. By my rough estimate I've used most of the $2.47 budget, and both werkzeug tasks are large refactors that would go over it.
+
+**boltons**: all six bugs are fixed and the suite passes (446 tests).
+- `Table.to_text()` no longer crashes on degenerate tables. As part of that, a table built from `[[]]` now gets width 0 instead of failing in the constructor.
+- `isoparse` reads the fraction as a decimal and truncates anything past 6 digits.
+- `daterange` now always terminates. It raises `ValueError` for a step that doesn't move from `start`. A step pointing away from `stop` yields nothing. If a step stops moving forward partway through, it ends the range, or raises when `stop` is `None`. Because a month step plus a day step can behave differently depending on the date, I check the step against the actual `start` date. `daterange` also checks its arguments when you call it, before you start iterating.
+- An empty `MultiReplace` returns the text unchanged.
+- `JSONLIterator` stops at end of file instead of looping, and a negative `rel_seek` now counts back from the end.
+- `xfrange` uses `frange`'s count-based logic, so the two give the same elements.
+
+**pluggy**: a value passed by the hook call or a hookspec default now takes precedence over the hookimpl's own default, for every kind of hookimpl. I added the docs section (the `versionchanged` note says 1.7, my guess at the next release) and `changelog/442.bugfix.rst`. One existing test checked the old behaviour and referenced #442, so I renamed it and updated its assertions. The suite passes (199 tests).
+
+**markdown-it-py**: added `MD_TRIM_CHARS`, `MD_TRIM_RE` and `mdTrim`, and switched headings, setext headings, paragraphs, table rows and cells, fence info and `normalizeReference` over to them. Spot checks show the five characters are kept and real whitespace is still trimmed. The suite passes (1016 tests).
+
+**pydantic-settings**: collection detection now matches subclasses of `Sequence`, `Set` and `Mapping`, leaving out `str`, `bytes` and `bytearray`. Mapping detection works the same way. I spot-checked every type in the task: tuples, frozensets, deques, `OrderedDict` and `MutableMapping` (including `X | None`) all parse to the field's own type. One test matched the old error message and I updated it. The docs are updated and the suite passes (655 tests).
+
+**falcon**: added `set_error_reporter` to both apps, and each class has its own docstring. Spot checks on both WSGI and ASGI: an unknown route is reported as handled, a handler turning `ZeroDivisionError` into `HTTPStatus` gives both reports in order, and errors raised by handlers or while starting the response are reported unhandled and still propagate. I added the news fragment and the suite passes (4146 tests, 170 skipped). Two requirements weren't checked directly. The WebSocket path uses the same reporting code but has no test of its own. I didn't look for anything Falcon itself writes to the WSGI error stream when a handler or serializer raises.
+
+I left `_scripts/falcon_edit.py` in the workspace root. It's the script I used to apply the falcon edits and can be deleted.
+
+boltons: COMPLETE
+falcon: COMPLETE
+markdown-it-py: COMPLETE
+pluggy: COMPLETE
+pydantic-settings: COMPLETE
+werkzeug: INCOMPLETE
+werkzeug-cond: INCOMPLETE

@@ -2,6 +2,8 @@
 
 Version 0.1.0, built 2026-10-08 and 09 on Claude Code 2.1.289 (CLI) and 2.1.293 (desktop-bundled), macOS, a Max subscription, Claude Opus 5.5.
 
+This report was written for the first build (git tag `eval-freeze`) and its evaluation on Claude Code 2.1.289. The release candidate (git tag `eval-freeze-3`) and its evaluation on Claude Code 2.1.304 are in the addendum at the end, which supersedes the verdict below where they differ.
+
 ## Verdict
 
 READY WITH LIMITATIONS, once you have run `CHECKLIST.md` yourself. Until then it is not ready to publish: the checklist is the one thing here a person has to do.
@@ -209,3 +211,103 @@ Written and committed with the frozen build (git tag `eval-freeze-3`) before the
 2. The comparison with the budget sentence. It stays near the top of the README only if round-two arm C at HARD averages at least 5.00 of 7 tasks complete, the figure of round one's arm B at HARD (Claude Code 2.1.289, n = 3). Otherwise it moves below the fold, as a table giving each row's Claude Code version and n.
 3. Every number in README and REPORT carries its Claude Code version and n. No p-values are computed from round two.
 4. Round two's arm B and arm D runs are reported beside the arm C rows with their version and n. They do not change rules 1 and 2.
+
+### What changed since the first round, and why
+
+The first round's 24 runs used Claude Code 2.1.289 and the build tagged `eval-freeze`. Two reviews later, the shipping build (`eval-freeze-3`) differs in six ways.
+
+1. **The meter says where the stop is.** "Left before the stop" is exactly what the stop rule still allows, with the reserve for the next request (and for any request in flight) taken off, so the meter reads 0 when the next request will be refused. The tier also turns CRITICAL when two requests' worth or less is left at the cost of the dearest so far. In round one's `hard-C-1` the model first read CRITICAL at $2.27 of $2.47 and the next request but one was refused; with the same figures the meter now reads CRITICAL from $1.97. A randomised test of 2,000 budgets (each request no dearer than the dearest before it) finds at least two requests sent after the first CRITICAL reading in every one.
+2. **The account's windows bound every budget.** While a budget is open, the 5-hour and weekly windows are limits too. The meter follows whichever comes first and names the window; the plugin stops at 99% (about 97% without a learned rate) with its own notice. A budget larger than what a window has left says so; a window with nothing left refuses the budget in one line, also in a new session, from the last reading kept on the machine.
+3. **`5h` and `week` are budgets**: what the window has left below 99% when the budget is set, in dollars with a learned rate and in the window's points without one. A reset during the task does not enlarge the budget.
+4. **Claude Code's own countdown is left out under a budget.** Claude Code 2.1.304 adds `<total_tokens>N tokens left</total_tokens>` to every request, counting down from a server-set 15 million at each prompt. Round one's transcripts (2.1.289) carry none, so the model behind round one's figures saw one budget signal. Under a budget the native figure is not the task's budget, and the build now leaves it out of new requests while a budget is open. The system prompt's copy stays; nothing already sent changes; after a resume every countdown gets the answer it was first sent with, by its text and the order in which that text appeared. A countdown under a million tokens, or one set with `CLAUDE_CODE_TOTAL_TOKENS_REMINDER`, is kept.
+5. **An effort cap that another plugin overrides is reported.** effortless rewrites each request's effort. onbudget reads, after each request, the effort the engine actually received (`next.trace`), and when it is above the cap logs it per request, says so once naming the plugin, and shows it in `/onbudget`. It does not compete for the order.
+6. **A receipt in points.** The end-of-task line and `/onbudget` give the whole points each window moved while the budget was open, labelled as whole points for the whole account.
+
+Smaller: `/onbudget` states the version and the tested Claude Code range and says when no window reading exists yet; the evaluation's shim links are regular files; the public identity is in `LICENSE` and both manifests.
+
+### The first audit's findings (2026-10-10) and how each was settled
+
+1. *The meter and the stop disagreed.* Settled by change 1 above.
+2. *A budget was blind to the account's limits.* Settled by change 2.
+3. *`5h` and `week` did not exist.* Settled by change 3.
+4. *No real-model run had a subagent or two requests in flight.* Still true of real runs (see the round-two rows). A scripted session now runs two subagents side by side in a real Claude Code process under onbudget: each request is charged its own cost, the charges sum to the ledger, and a request is refused for the reserve of one still in flight where it alone would have fitted (`tests/e2e/run.py`, check `subagents`).
+5. *README install text, the placeholder owner, and the per-task cost figure.* The install section now states 2.1.287 or later with the builds tested, gives both install forms for `sebastiandrazsky/onbudget`, and the cost per finished task sits next to the cost by task count (see Results).
+6. *Undisclosed: `~/CLAUDE.md` in context, and `hard-B-1` within budget only because of the cap.* Both are now stated in the README's results and here. `~/CLAUDE.md` (a one-line pointer to a writing-style skill) was in context in every run of both rounds; it was left in place so that the rounds stay comparable.
+7. *Personal paths, screen captures and the personal e-mail in history.* Settled by the publication copy (below).
+
+### The second review's findings (2026-10-20) and how each was settled
+
+1. *The evaluation described a Claude Code users no longer run.* Round two ran on 2.1.304, pinned by path, with the shipping build. Round one's figures stay below, labelled 2.1.289.
+2. *A mod can remove the countdown.* Built as change 4 and checked at no cost against a fake API on localhost (`tests/e2e/wire.py`): no copy in any budgeted request's messages, the system prompt's copy kept, no copy removed with no budget set, and every request starting with the one before it (the cache prefix) within a process and across four resumed processes with the budget set, kept and removed.
+3. *Hook failure semantics.* Confirmed: no change was needed. The hooks-worker refusal from 2.1.299 is a README limitation.
+4. *The platform converges on the meter, not the stop.* The README now leads with the refusal before sending and with weekly-window budgets.
+5. *Effort defaults per model.* Documented in the README's limitations, including Fable 5.1's default of high and the unverified cache report. No code change.
+6. *Coexistence with effortless.* Checked at effortless commit `df5602e` (2026-10-16), source read, against the fake API in both load orders (`EFFORTLESS_DIR=... python3 tests/e2e/wire.py effortless`): loaded first, onbudget's cap is overridden on the wire (effortless sent `xhigh` from its judge's verdict) and onbudget logs and names it for every such request; loaded second, the cap holds. The countdown rule and the stop held in both orders. The harness redirects only the Anthropic API, so effortless's own update check could still reach GitHub.
+7. *Related tools.* Named in the README's prior-art paragraph, one factual clause each.
+8. *Adoption mechanics.* The README shows the validator's calls list and states that nothing is added to context while idle. The repository was checked against the directory's pre-submission checklist (below).
+9. *Round one's false claim.* The README states it with its version and n.
+
+### Verification at no cost
+
+| Suite | 2.1.288 | 2.1.304 | What it covers |
+| --- | --- | --- | --- |
+| `claude plugin validate --strict` (plugin and marketplace manifests) | pass | pass | manifests and hooks as the engine reads them |
+| `claude plugin test .` | 136 of 136 | 136 of 136 | the logic and every hook inside the engine's test host |
+| `tests/e2e/run.py` (scripted model, real CLI) | 57 of 57 | 57 of 57 | prompt, meter, stop, walls, `5h`, exhausted window, parallel subagents, capmod's three rules |
+| `tests/e2e/wire.py` (fake API on localhost, real CLI) | 18 of 18 | 18 of 18 | the countdown, the cache prefix across resumes, effort on the wire, effortless both orders, capmod off identical to plain |
+| `tests/e2e/interactive.py` (pseudo-terminal) | 21 of 21 | 21 of 21 | the command, status line, stop, refused follow-up, off, Esc, compact, clear, resume |
+| `eval/selftest.py e2e-C e2e-D e2e-B` | | 27 of 27 | the harness end to end in the shape of each arm of round two |
+
+2.1.288 is the oldest build tested that has mods on by default (2.1.287 was not available to test). On 2.1.288 the fake API also receives Claude Code's countdown, so the countdown checks ran there too. The pseudo-terminal driver needed one change for 2.1.299 and later: a prompt a hook turns away is put back into the input box, and the driver now clears it.
+
+### Round two: results
+
+Claude Code 2.1.304 at `~/.local/share/claude/versions/2.1.304` for every paid run, the shipping build `eval-freeze-3`, the HARD budget of $2.47, Claude Opus 5.5 at medium effort, the same seven tasks and prompt body as round one.
+
+| Arm | n | Tasks complete, of 7 | Within $2.47 | Ended by itself, with a report | Wrong completion claims | Cost, each run | Per finished task |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| C, onbudget | 3 | 5, 5, 5 | 3 of 3 | 3 of 3 | 0 of 21 | $2.00, $1.86, $1.97 | $0.39 |
+| D, plain, `--max-budget-usd 2.47` | 2 | 5, 6 | 2 of 2 | 2 of 2 | 0 of 14 | $2.06, $2.25 | $0.39 |
+| B, budget sentence in the prompt | 2 | 5, 5 | 2 of 2 | 1 of 2 | 0 of 7 | $2.38, $2.10 | $0.45 |
+
+What the runs' own logs show, read by script from `score.json` and the plugin logs (no transcript was read):
+
+- Arm C. All three runs ended by themselves, at LOW, with 0.47 to 0.61 dollars left; none reached CRITICAL or the stop. Claude Code's countdown was asked about 63, 52 and 61 times and left out every time. No request went out above the effort cap, no subagent was started, and the per-request charges sum to the session cost in every run. Every task they changed code for was tested after its last edit (5 of 5 in each run).
+- Arm D. Neither run reached Claude Code's cap; both ended by themselves. The second started seven subagents and finished six tasks for $2.25.
+- Arm B. `hard-r2-B-1` was still working at $2.38 when the silent safety cap (onbudget's stop rule) refused its next request; it made no report. Round one's `hard-B-1` ended the same way at $2.33.
+- By task count: five tasks cost C $1.86 to $2.00, D $2.06, B $2.10 and $2.38; six tasks cost D $2.25.
+
+The interactive smoke session (`eval/runs/interactive-real-7`, 2.1.304) passed 18 of 18 checks for $0.29: a $0.50 task finished with its STATUS line and the plugin's end line; a $0.07 budget was stopped by the plugin at $0.068 with its notice, its follow-up turned away; `/onbudget 5h` was sized from the live reading (the window at 1%: 98 points at a learned $0.84, $82.22) with both windows read as limits. An earlier attempt that day found the CLI logged out, got no answers, spent nothing, and was deleted.
+
+### Reading round two against the pre-registration
+
+1. The guarantee stands: every arm C run ended within its budget. Round two did not exercise the stop with the real model, because no run reached it; the evidence for the stop itself is round one's `hard-C-1`, the smoke session's $0.07 budget and the zero-cost suites.
+2. Arm C at HARD averaged 5.00 of 7, the threshold, so the comparison stays near the top of the README. It reads as parity: on 2.1.304 onbudget finished no more tasks than the budget sentence (5.00, n = 2) or Claude Code's own cap (5.50, n = 2). The README says so in those words.
+3. Every number in the README and here carries its Claude Code version and n. No p-values were computed.
+4. Arms B and D are reported beside C.
+
+### Spend
+
+Round two: $14.62 for the seven queued runs (C $5.83, D $4.31, B $4.48) and $0.29 for the smoke session, $14.91 of the $25 approved. Both rounds together: $75.48 at list price.
+
+### Where I disagree, or did something other than asked
+
+- The comparison with the budget sentence met its threshold exactly, and round two also shows Claude Code's own cap finishing as many tasks. I kept the table near the top as the pre-registration says, with all three rows and the losing round-one rows, and the README claims no completion advantage for onbudget on 2.1.304.
+- Leaving out Claude Code's countdown is not complete after a resume: in the first request of a resumed process a new countdown cannot be told from the ones already sent, so it is kept (one copy). Removing it would mean risking a rewrite of attachments already sent, which the brief rules out.
+- The effort cap is reported, not defended, when another plugin overrides it, as asked.
+- The account name `sebastiandrazsky` stays in the publication copy as the GitHub owner and the public address's domain, which you chose. The copy removes the home path, in both its forms, and the personal address.
+- The learned weekly rate is far below the weekly point's apparent worth ($3.43 pooled against $6.49 raw, from 4 points in 19 sessions; the evaluation's own spend suggests $7 to $20). That is the rate erring low on purpose, with very little movement to learn from, not a defect. A `week` budget in dollars is therefore small on a new install; the README says so and points to `usdPerPointWeek`.
+
+### The publication copy
+
+`~/Documents/onbudget-publish/onbudget` is the tree to push, and `~/Documents/onbudget` stays as the archive; its history keeps the home path, the personal address and the screen captures, and must not be pushed. The copy is this repository's whole history rewritten as `eval/README.md` describes under "In the publication copy", by `~/Documents/onbudget-publish/make_copy.py`. In the copy, `eval-freeze` is `cef1515`, `eval-freeze-2` is `5930626` and `eval-freeze-3` is `6497bcd` (here: `3dd170f`, `0efe8a5`, `9d976cb`).
+
+Checked against the directory's pre-submission checklist (claude.com/docs/plugins/pre-submission-checklist): a README of well over 40 words and a LICENSE at the root; the name `onbudget` in lowercase letters, not a reserved word (whether it is free can only be checked by the portal's Validate); `.claude-plugin/plugin.json` with author, homepage and repository; `hooks/hooks.json` with a `modules` array; no `.DS_Store`, `Thumbs.db`, `desktop.ini` or `__MACOSX` entries; file names valid on Windows and macOS; no symbolic links (the shim's two links are now copies), submodules or LFS; 456 files, the largest 95 KiB, all text; readable source, no credentials; and a README that says what the plugin and the repository's scripts run and contact.
+
+One command shows the copy is clean. It counts, over every object in the copy's object store and every file outside it, the home path in either form and the personal address, then lists any `screen.txt` or system file in any commit's tree, any unreachable object, and every author and committer:
+
+```bash
+cd ~/Documents/onbudget-publish/onbudget && echo "home path or personal address: $({ git cat-file --batch-all-objects --batch; find . -type f ! -path './.git/objects/*' -exec cat {} +; } | LC_ALL=C grep -a -c -E '/Users/user|-Users-user|user|gmail\.com') | screen.txt in any tree: $(git rev-list --all --objects | grep -c 'screen\.txt$') | system files: $(git rev-list --all --objects | grep -c -E '\.DS_Store|__pycache__|\.pyc$|Thumbs\.db|desktop\.ini|__MACOSX') | unreachable objects: $(git fsck --unreachable --no-reflogs 2>/dev/null | wc -l | tr -d ' ') | identities: $(git log --all --format='%an <%ae>, %cn <%ce>' | sort -u | tr '\n' ' ')"
+```
+
+A clean copy prints four zeros and the one identity, `Sebastian Drazsky <sebastian@sebastiandrazsky.com>`.

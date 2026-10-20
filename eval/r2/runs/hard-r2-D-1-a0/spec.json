@@ -1,0 +1,27 @@
+{
+ "phase": "r2-maxbudget",
+ "mode": "session",
+ "arm": "D",
+ "level": "HARD",
+ "usd": 2.47,
+ "raw": "$2.47",
+ "run_id": "hard-r2-D-1-a0",
+ "slot": "hard-r2-D-1",
+ "attempt": 0,
+ "names": [
+  "boltons",
+  "falcon",
+  "markdown-it-py",
+  "pluggy",
+  "pydantic-settings",
+  "werkzeug",
+  "werkzeug-cond"
+ ],
+ "plugins": [
+  "capmod"
+ ],
+ "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-r2-D-1-a0/ws",
+ "started": "2026-10-20T21:05:56",
+ "wall_s": 455.6,
+ "killed": null
+}

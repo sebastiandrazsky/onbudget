@@ -1,0 +1,22 @@
+{"ts": 1792522653.412829, "task": "pluggy", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-r2-C-3-a0/ws/pluggy"}
+{"ts": 1792522665.2655098, "task": "pluggy", "argv": ["python", "-c", "\nimport pluggy\nhs=pluggy.HookspecMarker('x'); hi=pluggy.HookimplMarker('x')\nclass S:\n    @hs\n    def h(self, a, b=5): pass\nclass P:\n    @hi\n    def h(self, a, b=1, c=7): return (a,b,c)\npm=pluggy.PluginManager('x'); pm.add_hookspecs(S); pm.register(P())\nprint(pm.hook.h(a=0,b=2), pm.hook.h(a=0))\n"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-r2-C-3-a0/ws/pluggy"}
+{"ts": 1792522665.370741, "task": "pluggy", "argv": ["python", "-m", "pytest", "testing", "--ignore=testing/benchmark.py", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-r2-C-3-a0/ws/pluggy"}
+{"ts": 1792522676.66747, "task": "pluggy", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-r2-C-3-a0/ws/pluggy"}
+{"ts": 1792522676.749624, "task": "pluggy", "argv": ["python", "-m", "pytest", "testing", "--ignore=testing/benchmark.py", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-r2-C-3-a0/ws/pluggy"}
+{"ts": 1792522714.994764, "task": "markdown-it-py", "argv": ["python", "_fix.py"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-r2-C-3-a0/ws/markdown-it-py"}
+{"ts": 1792522718.798579, "task": "markdown-it-py", "argv": ["python", "_chk.py"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-r2-C-3-a0/ws/markdown-it-py"}
+{"ts": 1792522718.9694889, "task": "markdown-it-py", "argv": ["python", "-m", "pytest", "tests", "--ignore=tests/test_packaging", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-r2-C-3-a0/ws/markdown-it-py"}
+{"ts": 1792522732.9106739, "task": "boltons", "argv": ["python", "-"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-r2-C-3-a0/ws/boltons"}
+{"ts": 1792522732.9852018, "task": "boltons", "argv": ["python", "-c", "\nfrom boltons.tableutils import Table\nprint(repr(Table([[]]).to_text())); print(repr(Table([[],[1]]).to_text())); t=Table([[1,2]],headers=[None]); print(t.to_text())"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-r2-C-3-a0/ws/boltons"}
+{"ts": 1792522803.91645, "task": "boltons", "argv": ["python", "_chk.py"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-r2-C-3-a0/ws/boltons"}
+{"ts": 1792522804.0554712, "task": "boltons", "argv": ["python", "-m", "pytest", "tests", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-r2-C-3-a0/ws/boltons"}
+{"ts": 1792522813.018295, "task": "boltons", "argv": ["python", "_c2.py"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-r2-C-3-a0/ws/boltons"}
+{"ts": 1792522853.039105, "task": "pydantic-settings", "argv": ["python", "_fix.py"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-r2-C-3-a0/ws/pydantic-settings"}
+{"ts": 1792522853.119262, "task": "pydantic-settings", "argv": ["python", "-m", "pytest", "tests", "--ignore=tests/test_docs.py", "-q", "-x"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-r2-C-3-a0/ws/pydantic-settings"}
+{"ts": 1792522872.285236, "task": "pydantic-settings", "argv": ["python", "_chk.py"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-r2-C-3-a0/ws/pydantic-settings"}
+{"ts": 1792522872.640471, "task": "pydantic-settings", "argv": ["python", "-m", "pytest", "tests", "--ignore=tests/test_docs.py", "-q"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-r2-C-3-a0/ws/pydantic-settings"}
+{"ts": 1792522946.665057, "task": "falcon", "argv": ["python", "_fix.py"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-r2-C-3-a0/ws/falcon"}
+{"ts": 1792522965.2793999, "task": "falcon", "argv": ["python", "_fix.py"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-r2-C-3-a0/ws/falcon"}
+{"ts": 1792522965.365772, "task": "falcon", "argv": ["python", "-m", "pytest", "tests", "--ignore=tests/asgi/test_asgi_servers.py", "--ignore=tests/test_wsgi_servers.py", "-q", "-x", "-p", "no:cacheprovider"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-r2-C-3-a0/ws/falcon"}
+{"ts": 1792523005.183258, "task": "falcon", "argv": ["python", "_chk.py"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-r2-C-3-a0/ws/falcon"}
+{"ts": 1792523022.1619358, "task": "falcon", "argv": ["python", "-m", "pytest", "tests", "--ignore=tests/asgi/test_asgi_servers.py", "--ignore=tests/test_wsgi_servers.py", "-q", "-p", "no:cacheprovider"], "cwd": "/Users/user/Documents/.onbudget-eval-work/hard-r2-C-3-a0/ws/falcon"}

@@ -1,0 +1,44 @@
+I finished five of the seven tasks and ran each one's test command, which passed. I didn't start the two werkzeug tasks: they needed more than the remaining budget.
+
+**boltons** (446 passed): I fixed all six bugs, and quick manual checks gave the expected results.
+- **Table:** besides `to_text`, I fixed the constructor, since `Table([[]])` itself crashed in `_set_width`. `to_text` now also handles rows longer than the headers.
+- **isoparse:** fractions are read as decimals, and digits past the sixth are dropped.
+- **daterange:**
+  - A step that can't advance raises `ValueError`, and a step pointing away from `stop` yields nothing.
+  - One judgement call: if the month and day parts of a step point in opposite directions and neither clearly wins (e.g. `(0, 1, -31)`), it raises. A mixed step like `(0, 1, -1)` still works.
+- **MultiReplace** with an empty mapping returns the text unchanged.
+- **xfrange** now uses `frange`'s counting, so both give the same elements; `frange` is unchanged.
+- **JSONLIterator:** a seek past the last newline now goes to end of file, and a negative `rel_seek` counts back from the end. I didn't run a manual check for this one.
+
+**pluggy** (199 passed): values from the call, then hookspec defaults, now take precedence over hookimpl defaults, for plain implementations and both kinds of wrapper. I added the docs section and `changelog/442.bugfix.rst`. I guessed `1.7` for the `versionchanged` note because the last release is 1.6.0. One existing test checked the old behaviour, so I renamed it and changed its expected values.
+
+**markdown-it-py** (1016 passed): added `MD_TRIM_CHARS`, `mdTrim` and `MD_TRIM_RE` and used them at all the listed call sites. Manual renders confirm the five characters now survive in paragraphs, headings, setext headings and table cells, labels no longer cross-match, and the fence info string isn't split on them.
+
+**pydantic-settings** (655 passed, 68 skipped): collection detection now matches any subclass of `Sequence`, `Set` or `Mapping`, excluding `str`, `bytes` and `bytearray`.
+- Manual runs confirmed variadic named options (tuple, frozenset, OrderedDict) and a variadic positional argument.
+- Repeated plain options merge for tuple, frozenset and deque, and mapping subtypes take `key=value`.
+- `--name a b` is still rejected, and the new error message appears.
+- I updated one test for the new error message and edited the CLI section of `docs/index.md`.
+
+**falcon** (4146 passed, 170 skipped): added `set_error_reporter` to both apps, with the news fragment and docstrings on both classes. A manual script on WSGI and ASGI showed:
+- an unknown route reports `HTTPRouteNotFound` as handled;
+- a handler turning `ZeroDivisionError` into `HTTPStatus` gives two reports, in that order;
+- an invalid `resp.status` is reported as unhandled and reaches the server.
+
+Not checked by me:
+- a handler re-raising the same exception;
+- a handler or the error serializer raising some other exception;
+- ASGI header-encoding failures;
+- WebSocket exceptions.
+
+The code covers each of these, but no tests exercise them. I didn't build the docs or add new tests to the suite.
+
+boltons: COMPLETE
+falcon: COMPLETE
+markdown-it-py: COMPLETE
+pluggy: COMPLETE
+pydantic-settings: COMPLETE
+werkzeug: INCOMPLETE
+werkzeug-cond: INCOMPLETE
+
+STATUS: INCOMPLETE

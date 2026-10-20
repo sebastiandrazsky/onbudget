@@ -110,6 +110,7 @@ declines its offer of a language-server plugin. Each session's plugin log, scree
 | 3, 4 | 15 of 16 | an offer to install a language-server plugin covered the prompt when the status command was typed |
 | 5 | 16 of 16 | |
 | 6 | 16 of 16 | with `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false`: the spend after a stop no longer grows |
+| 7 | 18 of 18 | 2026-10-20, Claude Code 2.1.304, build `eval-freeze-3`, $0.29; adds the end-of-task line and `/onbudget 5h` |
 
 In session 4, and possibly session 3, the driver answered that plugin offer with Yes. The plugin (`pyright-lsp`) was already installed and enabled for
 the user; the answer refreshed its install timestamp. From session 5 on the driver declines the offer.
@@ -259,6 +260,17 @@ a changelog entry written after the last test run does not clear it, and a task 
 The tables show it as "verified/code-edited" (tasks verified_code / tasks with a changed code file). The shim records
 that a test run started, not how it ended, so neither figure says the tests passed. `.DS_Store` files are ignored
 everywhere (changed files, `ws.diff`, changelog rules).
+
+## In the publication copy
+
+The repository published as `sebastiandrazsky/onbudget` is a rewrite of this one's whole history
+(`~/Documents/onbudget-publish/make_copy.py`, kept outside the repository). In every file of every commit, and in commit
+messages and authorship: the home path of the machine the evaluation ran on reads `/Users/user`, also in Claude Code's
+folder form (`-Users-user-`); the e-mail address the commits were made with is replaced by the public one; author and
+committer are the public identity. The `screen.txt` files of the interactive sessions (the screen as text, which shows
+the slash commands installed on that machine) are left out of every commit. Nothing else was changed: the logs, scores,
+diffs and tables are as the runs wrote them. The tags `eval-freeze`, `eval-freeze-2` and `eval-freeze-3` point at the
+rewritten commits of the same builds.
 
 ## Files
 
