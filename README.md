@@ -198,7 +198,7 @@ While a budget is set, and only then, it changes four things: the effort of each
 
 ## Configuration
 
-Set these with `/config` after installing, or in `pluginConfigs` in your settings.
+Set these with `/config` after installing, or in `pluginConfigs` in your settings. The installer says the three options are not yet set; until you set them, the defaults below apply.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
