@@ -44,5 +44,3 @@ jobs:
         run: python3 tests/e2e/run.py
       - name: End to end, fake API on localhost
         run: python3 tests/e2e/wire.py
-      - name: The paid smoke script's permission-dialog matcher, on synthetic dialogs
-        run: python3 tests/e2e/dialogs.py

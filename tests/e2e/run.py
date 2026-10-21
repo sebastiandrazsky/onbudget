@@ -212,21 +212,6 @@ def t_resume():
         check(f'resume ({mode}): the follow-up prompt carries the reading', prompts and prompts[0]['context'] and prompts[0]['context'][0].startswith('[budget] spent $0.50 of $2.00'), str(prompts)[:300])
 
 
-def t_capmod():
-    """The evaluation's cap plugin (eval/capmod): the same stop rule as onbudget, silently, and its simple-cap variant."""
-    capmod = os.path.join(REPO, 'eval', 'capmod')
-    script = [dict(bash=f'echo {i}', cost=0.30) for i in range(6)]
-    for rule, sent in (('reserve', 3), ('simple', 4), ('off', 7)):  # off: the six tool calls and the closing answer
-        r = Run(f'capmod-{rule}', 'Do the things.', script, plugins=(capmod, MOCK), env=dict(CAP_USD='1', CAP_RULE=rule, CAP_LOG=os.path.join(TMP, f'cap-{rule}.jsonl')))
-        log = [json.loads(l) for l in open(os.path.join(TMP, f'cap-{rule}.jsonl')) if l.strip()]
-        stops = [x['data'] for x in log if x['kind'] == 'stop']; prompts = r.mock('prompt'); steps = r.mock('step')
-        if rule == 'off': check('capmod (off): every request is sent and logged, nothing is refused', len(steps) == sent and not stops and len([x for x in log if x['kind'] == 'step']) == sent, f'steps={len(steps)} stops={stops[:1]}')
-        else: check(f'capmod ({rule} rule): {sent} requests are sent under a $1 cap, then the cap stops the session without a word',
-                    len(steps) == sent and stops and stops[0]['event'] == 'cap-stop' and r.result == '', f'steps={len(steps)} stops={stops[:1]} result={r.result!r}')
-        check(f'capmod ({rule} rule): the prompt, the effort and the tool results are untouched',
-              prompts and prompts[0]['text'] == 'Do the things.' and not prompts[0]['context'] and all(x['effort'] == 'high' for x in steps) and r.meters() == [], f'{prompts} {steps[:1]}')
-
-
 def t_wall():
     """A window of the account is a wall under a dollar budget: no rate learned, so in points, stopping before 100%."""
     script = [dict(bash=f'echo {p}', cost=0.1, five_hour=p) for p in (94, 95, 96, 97)] + [dict(text='done', cost=0.1, five_hour=98)]
@@ -292,7 +277,7 @@ def t_version():
 
 
 CHECKS = dict(version=t_version, untouched=t_untouched, dollar=t_dollar_stop, within=t_finishes_within, badenv=t_bad_env, typed=t_typed, slash=t_slash,
-              percent=t_percent_observed, calibration=t_calibration_persists, resume=t_resume, capmod=t_capmod, wall=t_wall, exhausted=t_exhausted, rest=t_rest,
+              percent=t_percent_observed, calibration=t_calibration_persists, resume=t_resume, wall=t_wall, exhausted=t_exhausted, rest=t_rest,
               subagents=t_subagents)
 
 if __name__ == '__main__':

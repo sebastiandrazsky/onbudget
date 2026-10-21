@@ -1,5 +1,7 @@
 # onbudget: engineering and evaluation report
 
+Paths under `eval/` refer to the tree at the tag `v0.1.0` (https://github.com/sebastiandrazsky/onbudget/tree/v0.1.0/eval): from 0.1.1, `eval/` is not on `main`, and the evaluation's commands run there and in the development archive.
+
 Version 0.1.0, built 2026-10-08 and 09 on Claude Code 2.1.289 (CLI) and 2.1.293 (desktop-bundled), macOS, a Max subscription, Claude Opus 5.5.
 
 This report was written for the first build (git tag `eval-freeze`) and its evaluation on Claude Code 2.1.289. The release candidate (git tag `eval-freeze-3`) and its evaluation on Claude Code 2.1.304 are in the first addendum, and the release (git tag `v0.1.0`) in the second; each supersedes what comes before it where they differ.

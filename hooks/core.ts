@@ -2,7 +2,7 @@
 // register.ts is the only file that talks to Claude Code; everything it decides, it decides here.
 
 export const NAME = 'onbudget' // command and plugin name (see README, "Renaming")
-export const VERSION = '0.1.0' // as in .claude-plugin/plugin.json (a test compares them)
+export const VERSION = '0.1.1' // as in .claude-plugin/plugin.json (a test compares them)
 export const TESTED = 'Claude Code 2.1.288 to 2.1.306' // the builds every suite passed on
 
 /**

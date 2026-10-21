@@ -2,7 +2,7 @@
 
 A pass through onbudget in a real terminal session with a real model. It takes about twenty minutes and costs about $1 of usage, plus what the three real tasks of section 10 spend. Tick each line as you go; anything that does not match is a reason not to publish yet.
 
-The automated suites already drive these same paths against a scripted model (`python3 tests/e2e/interactive.py`), and `eval/interactive_smoke.py` drove steps 1, 2 and 4 with the real model. This checklist is the part no script can do: your own eyes on the screen, and the steps no script covered with a real model (5, 6, and most of 7 and 8).
+The automated suites already drive these same paths against a scripted model (`python3 tests/e2e/interactive.py`), and [`eval/interactive_smoke.py`](https://github.com/sebastiandrazsky/onbudget/blob/v0.1.0/eval/interactive_smoke.py), at the tag `v0.1.0`, drove steps 1, 2 and 4 with the real model. This checklist is the part no script can do: your own eyes on the screen, and the steps no script covered with a real model (5, 6, and most of 7 and 8).
 
 ## Set up
 
@@ -28,7 +28,7 @@ Accept the folder-trust question for the scratch folder: it starts on "No, exit"
 - [ ] Claude runs the tests before it finishes.
 - [ ] Its last message says what is complete and how it was verified, and ends with `STATUS: COMPLETE`.
 - [ ] Below it, a line from the plugin, with its name once: `onbudget: Claude ended the task with STATUS: COMPLETE, at $… of $0.60; the 5-hour window moved … points, the weekly window moved … (whole points, whole account). The budget is still open…`
-- [ ] `/onbudget` shows the spend, the request count, the dearest request so far, the points each window moved, and `onbudget 0.1.0, tested on Claude Code 2.1.288 to 2.1.306`.
+- [ ] `/onbudget` shows the spend, the request count, the dearest request so far, the points each window moved, and `onbudget 0.1.1, tested on Claude Code 2.1.288 to 2.1.306`.
 
 ## 3. A follow-up on the same budget
 

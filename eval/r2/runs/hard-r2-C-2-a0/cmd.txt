@@ -1,1 +1,0 @@
-/Users/user/.local/share/claude/versions/2.1.304 -p --output-format json --plugin-dir /Users/user/Documents/onbudget --permission-mode acceptEdits --setting-sources project,local --strict-mcp-config --disable-slash-commands --allowedTools Bash(python:*),Bash(python3:*),Bash(pytest:*) --disallowedTools WebFetch,WebSearch --model opus[1m] --effort medium

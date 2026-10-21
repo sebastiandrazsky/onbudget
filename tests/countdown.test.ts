@@ -77,7 +77,7 @@ describe('the receipt', () => {
     expect(w.logs[w.logs.length - 1]).toBe('Claude ended the task with STATUS: COMPLETE, at $1.50 of $5.00; the 5-hour window moved 3 points, the weekly window moved 1 point (whole points, whole account). The budget is still open: a follow-up prompt draws on it, and /onbudget off removes it.')
     const status = (await run($, '')).text
     expect(status).toContain('account limit, 5-hour window: at 43% (resets 2026-10-08 22:10 UTC), moved 3 points since the budget started (whole points, whole account)')
-    expect(status).toContain('onbudget 0.1.0, tested on Claude Code')
+    expect(status).toContain('onbudget 0.1.1, tested on Claude Code')
   })
 })
 

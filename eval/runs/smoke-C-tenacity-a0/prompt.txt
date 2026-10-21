@@ -1,9 +1,0 @@
-You are working in the `tenacity` retry library (the current directory is the repository root; `python` and `pytest` on PATH have all dependencies installed; there is no network). A recent typing clean-up introduced three runtime regressions in wait handling. None is caught by the test suite, and each only shows up once a retry actually happens. Fix them so that the following hold:
-
-1. Falsy `wait` values mean "do not wait" again. `Retrying(wait=None)`, `Retrying(wait=0)` and `wait=sum([])` (which is the int `0`) must retry without sleeping instead of raising `TypeError` from inside the retry loop.
-2. The same holds for `AsyncRetrying`.
-3. `plain_callable + wait_strategy` builds a `wait_combine` again. A plain callable is a valid wait, and since functions have no `__add__` this goes through `wait_base.__radd__`; for example a function returning `2.0` added to `wait_fixed(1)` waits `3.0`.
-4. A non-zero number on the left, such as `5 + wait_fixed(1)`, is rejected with `TypeError` at the addition itself, while `sum()` over a list of wait strategies keeps working.
-5. `wait_combine` passes the retry state to each strategy positionally, as the retry loop itself does, so a callable whose parameter is not named `retry_state` works.
-6. Add a release note under `releasenotes/notes/` that describes the three fixes.
-7. All existing tests must still pass.

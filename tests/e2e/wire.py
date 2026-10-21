@@ -193,28 +193,7 @@ def t_effortless():
         check(f'effortless, {order}: the budget\'s countdown rule and stop still apply', copies(r) == [0] * len(r.main) and r.rc == 0 and not r.rows('hookfail'), f'{copies(r)} {brief(r)}')
 
 
-def t_capmod_off():
-    """The evaluation's cap plugin in log-only mode (eval/capmod, CAP_RULE=off) changes nothing the model receives."""
-    capmod = os.path.join(REPO, 'eval', 'capmod')
-    plain = Run('capoff-plain', 'Say hi.', plugins=())
-    logged = Run('capoff-logged', 'Say hi.', plugins=(capmod,), env=dict(CAP_USD='2.47', CAP_RULE='off', CAP_LOG=os.path.join(TMP, 'capoff.jsonl')))
-    def same(r):
-        """A run's requests with its own directories, session id and countdown figures put to one form."""
-        text = json.dumps([dict(model=b.get('model'), system=bare(b.get('system')), messages=bare(b.get('messages')), tools=b.get('tools'),
-                                output_config=b.get('output_config'), thinking=b.get('thinking'), max_tokens=b.get('max_tokens')) for b in r.main])
-        for path, tag in ((r.cwd, '<cwd>'), (os.path.realpath(r.cwd), '<cwd>'), (r.home, '<home>'), (os.path.realpath(r.home), '<home>'), (r.session_id or '-', '<sid>')):
-            text = text.replace(path, tag)
-        text = text.replace(os.path.basename(r.dir), '<run>')   # the run's name, also inside the project folder's slug
-        return re.sub(r'\d+ tokens left', 'N tokens left', text)
-    rows = [json.loads(l) for l in open(os.path.join(TMP, 'capoff.jsonl'))] if os.path.exists(os.path.join(TMP, 'capoff.jsonl')) else []
-    check('capmod off: it loaded and logged every request', len([x for x in rows if x['kind'] == 'step']) == len(logged.main) > 0 and logged.rc == 0, brief(logged))
-    a, b = same(plain), same(logged)
-    j = next((k for k in range(min(len(a), len(b))) if a[k] != b[k]), None)
-    check('capmod off: the requests are those of plain Claude Code (model, system prompt, messages, tools, effort)', a == b,
-          'equal' if a == b else f'first difference at {j}: {a[max(0, (j or 0) - 120):(j or 0) + 120]!r} vs {b[max(0, (j or 0) - 120):(j or 0) + 120]!r}')
-
-
-CHECKS = dict(countdown=t_countdown, resume=t_resume, capmod=t_capmod_off, effortless=t_effortless)
+CHECKS = dict(countdown=t_countdown, resume=t_resume, effortless=t_effortless)
 
 if __name__ == '__main__':
     v = subprocess.run([CLAUDE, '--version'], capture_output=True, text=True).stdout.strip()

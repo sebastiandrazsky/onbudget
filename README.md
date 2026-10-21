@@ -53,7 +53,7 @@ When you don't need it: in `claude -p`, Claude Code's own `--max-budget-usd` did
 
 ## Results
 
-The benchmark: seven real bug fixes in Python libraries (boltons, falcon, markdown-it-py, pluggy, pydantic-settings and two in werkzeug), given in one prompt to one headless session and scored by upstream tests the model never saw. `eval/TASKS.md` names each task's repository, commits and hidden tests. Claude Opus 5.5 at medium effort; `REPORT.md` has the method, both rounds' full tables and the exceptions, and `eval/` the raw data.
+The benchmark: seven real bug fixes in Python libraries (boltons, falcon, markdown-it-py, pluggy, pydantic-settings and two in werkzeug), given in one prompt to one headless session and scored by upstream tests the model never saw. [`eval/TASKS.md`](https://github.com/sebastiandrazsky/onbudget/blob/v0.1.0/eval/TASKS.md) names each task's repository, commits and hidden tests. Claude Opus 5.5 at medium effort; `REPORT.md` has the method, both rounds' full tables and the exceptions, and [`eval/`](https://github.com/sebastiandrazsky/onbudget/tree/v0.1.0/eval) the raw data. That evidence, the harness included, is at the tag `v0.1.0`: from 0.1.1 it is not on `main`, so an install does not carry it.
 
 At $2.47 on Claude Code 2.1.304 (the release current on 2026-10-20):
 
@@ -65,7 +65,7 @@ At $2.47 on Claude Code 2.1.304 (the release current on 2026-10-20):
 
 - No onbudget run has gone over its budget: 12 runs with the real model, on Claude Code 2.1.289 and 2.1.304 (10 seven-task sessions and 2 single tasks). 11 of the 12 ended by themselves with a report.
 - On 2.1.304 it is parity: onbudget finished no more tasks than plain Claude Code under its own cap or a sentence in the prompt. With n of 2 or 3, a difference of a task or less is noise. The six-task `--max-budget-usd` run did most of its work in seven subagents that Claude Code ran on Claude Sonnet 5.5 ($1.32 of its $2.25); the other, Opus only, finished 5 of 7.
-- The build that ships is not byte for byte the one round two ran (git tag `eval-freeze-3`). `git diff eval-freeze-3 -- hooks .claude-plugin` shows five changes: weekly sizing (a weekly budget counts the window's points unless `usdPerPointWeek` is set); display text (the command's answers, the status line, the end-of-task line and the manifest's descriptions); the event log, which is off unless `ONBUDGET_LOG=1` and goes only to `log/events.jsonl` in the plugin's own folder, where round two's build wrote it to a file the variable named; the variable `ONBUDGET_EFFORT`, removed, so that the `effort` option alone sets the cap (default `medium`, as before); and an icon. Rendered side by side with `tests/e2e/modeltext.py`, what the model receives is byte for byte the same under dollar and 5-hour budgets, which is what round two ran, and differs only under weekly budgets.
+- The build that ships is not byte for byte the one round two ran (git tag `eval-freeze-3`). `git diff eval-freeze-3 -- hooks .claude-plugin` shows these changes: weekly sizing (a weekly budget counts the window's points unless `usdPerPointWeek` is set); display text (the command's answers, the status line, the end-of-task line and the manifest's descriptions); the event log, which is off unless `ONBUDGET_LOG=1` and goes only to `log/events.jsonl` in the plugin's own folder, where round two's build wrote it to a file the variable named; the variable `ONBUDGET_EFFORT`, removed, so that the `effort` option alone sets the cap (default `medium`, as before); an icon; and, from 0.1.1, the version number and the manifest's listing fields. Rendered side by side with `tests/e2e/modeltext.py`, what the model receives is byte for byte the same under dollar and 5-hour budgets, which is what round two ran, and differs only under weekly budgets.
 - On 2.1.289, with an earlier build of onbudget (git tag `eval-freeze`), plain Claude Code under a cap split the work across subagents in six of eight runs and was cut off mid-work; that round's table is in `REPORT.md`.
 - Every run had a one-line `~/CLAUDE.md` in context, a pointer to a writing-style skill.
 
@@ -96,7 +96,7 @@ claude plugin install onbudget@onbudget
 Inside a Claude Code session the same two commands start with `/plugin` instead of `claude plugin`. To stay on this release until you choose to move, add the marketplace pinned to its tag instead:
 
 ```bash
-claude plugin marketplace add sebastiandrazsky/onbudget#v0.1.0
+claude plugin marketplace add sebastiandrazsky/onbudget#v0.1.1
 ```
 
 From a local checkout, for one session: `claude --plugin-dir /path/to/onbudget`.
@@ -107,7 +107,7 @@ Type `/onbudget`. It should answer `onbudget: no budget is set` and name its ver
 
 Nothing outside the plugin enforces a budget. If the plugin does not run, requests are neither metered nor refused, and `ONBUDGET` is ignored, so a headless task runs with no budget at all. That happens when Claude Code starts in safe mode (`--safe-mode`) or `--bare` mode, which load no plugins; when an organisation's managed settings turn plugins or mods off; when Anthropic switches the mods API off; and when Claude Code unloads the plugin (see "The hooks worker" under Limitations). A plugin that runs before onbudget can also skip its hooks; from 2.1.304 the transcript names the plugin and the event when it does. A request whose hook does not run is not checked, though its cost is in the ledger the next check reads. A hook that runs and fails, or runs out of time, is different: while a budget is set, the request is not sent, and the plugin says so (`[onbudget] Not sent: the budget check could not be completed`).
 
-How to tell. In a terminal session, `/onbudget` is offered when you type `/onb`, and once a budget is set a status line under the prompt shows the tier and what is left. Without the plugin, `/onbudget` is not offered and, typed anyway, is sent to Claude as an ordinary prompt. In a headless run, `claude -p "/onbudget"` prints `onbudget: no budget is set` without a model request when the plugin is running. To check one particular run, start it with `ONBUDGET_LOG=1`: as the session starts, the plugin writes `log/events.jsonl` in its own folder, beginning with a `session.start` row. For an install from the marketplace that folder is `plugins/cache/onbudget/onbudget/0.1.0` under your Claude config directory. Delete the file before the run; if the run does not write it again, the plugin did not run.
+How to tell. In a terminal session, `/onbudget` is offered when you type `/onb`, and once a budget is set a status line under the prompt shows the tier and what is left. Without the plugin, `/onbudget` is not offered and, typed anyway, is sent to Claude as an ordinary prompt. In a headless run, `claude -p "/onbudget"` prints `onbudget: no budget is set` without a model request when the plugin is running. To check one particular run, start it with `ONBUDGET_LOG=1`: as the session starts, the plugin writes `log/events.jsonl` in its own folder, beginning with a `session.start` row. For an install from the marketplace that folder is `plugins/cache/onbudget/onbudget/0.1.1` under your Claude config directory. Delete the file before the run; if the run does not write it again, the plugin did not run.
 
 ## Use
 
@@ -159,7 +159,7 @@ ONBUDGET='$3' claude -p "Implement authentication"
 ONBUDGET='5h' claude -p "Build this application"
 ```
 
-`ONBUDGET` applies to the first prompt of the session, once. If the value cannot be used, the prompt is dropped with the reason; the task is not run without its budget. When the budget stops a headless run, the run's result is the plugin's notice, which begins `[onbudget] Stopped:`. In `claude -p`, set the budget with `ONBUDGET`: the form `claude -p "/onbudget <budget> <task>"` sets the budget but can exit before the task is sent (exit code 0, nothing run, nothing spent), a known issue in 0.1.0.
+`ONBUDGET` applies to the first prompt of the session, once. If the value cannot be used, the prompt is dropped with the reason; the task is not run without its budget. When the budget stops a headless run, the run's result is the plugin's notice, which begins `[onbudget] Stopped:`. In `claude -p`, set the budget with `ONBUDGET`: the form `claude -p "/onbudget <budget> <task>"` sets the budget but can exit before the task is sent (exit code 0, nothing run, nothing spent), a known issue in 0.1.0 and 0.1.1.
 
 ## How it works
 
@@ -267,7 +267,7 @@ It also leaves Claude Code's own token countdown out of new requests while a bud
 
 With no budget set, every hook passes its event through unchanged; the only work left is the calibration record kept at `session.measure`.
 
-While a budget is set, and only then, it changes four things: the effort of each request, one line of context after each tool result and with each follow-up prompt, whether a request is sent at all, and whether Claude Code's countdown goes into a new request. The plugin is two files, `hooks/core.ts` (the logic) and `hooks/register.ts` (the hooks), about 1,350 lines together. Installing it copies the whole repository, `eval/` and `tests/` included; the plugin never loads either.
+While a budget is set, and only then, it changes four things: the effort of each request, one line of context after each tool result and with each follow-up prompt, whether a request is sent at all, and whether Claude Code's countdown goes into a new request. The plugin is two files, `hooks/core.ts` (the logic) and `hooks/register.ts` (the hooks), about 1,350 lines together. Installing it copies 38 files, about half a megabyte: the plugin, its manifests, its tests and its documents; the plugin never loads the tests. The evaluation is not among them: from 0.1.1 it is at the tag `v0.1.0` only.
 
 ## Limitations
 
@@ -322,12 +322,11 @@ python3 tests/e2e/wire.py                                    # a real `claude -p
 python3 tests/e2e/interactive.py                             # a real terminal session through a pseudo-terminal, 80 columns
 python3 tests/e2e/modeltext.py <build A> <build B>           # what the model receives from two builds, compared byte for byte
 python3 tests/e2e/readme.py                                  # the README's texts from the plugin's code, its hooks, variables and calls
-python3 tests/e2e/dialogs.py                                 # eval/interactive_smoke.py's permission-dialog matcher, on synthetic dialogs
 ```
 
-None of these makes a model request or spends anything. `ONBUDGET_CLAUDE_BIN` points the Python suites at another Claude Code build, and `EFFORTLESS_DIR` adds effortless to `wire.py`. The GitHub workflow installs the current Claude Code release from npm and runs the validations, the in-engine tests, `run.py`, `wire.py` and `dialogs.py`, on every push and weekly.
+None of these makes a model request or spends anything. `ONBUDGET_CLAUDE_BIN` points the Python suites at another Claude Code build, and `EFFORTLESS_DIR` adds effortless to `wire.py`. The GitHub workflow installs the current Claude Code release from npm and runs the validations, the in-engine tests, `run.py` and `wire.py`, on every push and weekly. The checks of the evaluation's own tools, the smoke script's permission-dialog matcher and the cap plugin, live with those tools, at the tag `v0.1.0` and in the development archive.
 
-The test suites start Claude Code processes with a scripted model or a fake Anthropic API on 127.0.0.1, and a fake key. `run.py` and `wire.py` give each process a config directory of its own; `interactive.py` uses yours, because a new one stops at the first-run screens, and removes what its sessions stored there when it ends. `eval/` is the paid evaluation: it starts headless Claude Code sessions under your own login, runs the test suites of the task repositories, and before each session checks that `https://api.anthropic.com` answers and that `claude auth status` reports a login. `eval/README.md` explains how to run it and what it costs, `eval/TASKS.md` identifies the tasks, `eval/rebuild_tasks.py` rebuilds them from GitHub and PyPI, and `eval/runs/` keeps each run's logs and scores, with this machine's home path replaced by `/Users/user`.
+The test suites start Claude Code processes with a scripted model or a fake Anthropic API on 127.0.0.1, and a fake key. `run.py` and `wire.py` give each process a config directory of its own; `interactive.py` uses yours, because a new one stops at the first-run screens, and removes what its sessions stored there when it ends. The paid evaluation is not on `main`: it is in [`eval/` at the tag `v0.1.0`](https://github.com/sebastiandrazsky/onbudget/tree/v0.1.0/eval) and in the development archive, and runs from there. It starts headless Claude Code sessions under your own login, runs the test suites of the task repositories, and before each session checks that `https://api.anthropic.com` answers and that `claude auth status` reports a login. [`eval/README.md`](https://github.com/sebastiandrazsky/onbudget/blob/v0.1.0/eval/README.md) explains how to run it and what it costs, [`eval/TASKS.md`](https://github.com/sebastiandrazsky/onbudget/blob/v0.1.0/eval/TASKS.md) identifies the tasks, [`eval/rebuild_tasks.py`](https://github.com/sebastiandrazsky/onbudget/blob/v0.1.0/eval/rebuild_tasks.py) rebuilds them from GitHub and PyPI, and [`eval/runs/`](https://github.com/sebastiandrazsky/onbudget/tree/v0.1.0/eval/runs) keeps each run's logs and scores, with this machine's home path replaced by `/Users/user`.
 
 Every change users should receive bumps `version` in `.claude-plugin/plugin.json`, in both places in `.claude-plugin/marketplace.json`, and `VERSION` in `hooks/core.ts` (a test compares them), with a `CHANGELOG.md` entry: Claude Code updates an installed plugin only when its version changes.
 
@@ -339,4 +338,4 @@ To report a vulnerability, see `SECURITY.md`.
 
 ## License
 
-MIT, copyright 2026 Sebastian Drazsky. See `LICENSE`. Code quoted from the benchmark's upstream projects in `eval/` keeps its own licences; see `eval/THIRD_PARTY_NOTICES.md`.
+MIT, copyright 2026 Sebastian Drazsky. See `LICENSE`. Code quoted from the benchmark's upstream projects in `eval/`, at the tag `v0.1.0`, keeps its own licences; see [`eval/THIRD_PARTY_NOTICES.md`](https://github.com/sebastiandrazsky/onbudget/blob/v0.1.0/eval/THIRD_PARTY_NOTICES.md).

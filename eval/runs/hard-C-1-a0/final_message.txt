@@ -1,3 +1,0 @@
-[onbudget] Stopped: $2.32 of $2.47 is used, and the next request could cost up to $0.17, so it was not sent.
-This notice comes from the onbudget plugin, not from Claude. The work was interrupted: treat anything Claude has not reported as complete and verified as unfinished.
-To go on: /onbudget off (no budget), or /onbudget <budget> <instructions> (a new budget).

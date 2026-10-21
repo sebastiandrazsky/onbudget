@@ -2,9 +2,14 @@
 
 Every change users should receive bumps the version (see README, "Development").
 
-## Unreleased
+## 0.1.1 (2026-10-21)
 
-Listing metadata for the plugin directory; no change to the plugin's code. `PRIVACY.md` states what onbudget reads, writes and sends. `.claude-plugin/plugin.json` gains `displayName`, `documentationUrl`, `supportUrl` and `privacyPolicyUrl`, and the keyword `usage-limits` replaces `function-hooks`. The README links to `PRIVACY.md` and now says that the store keeps the first line of each budgeted task. The version stays 0.1.0, and the tag `v0.1.0` stays on `9518ab9`.
+A packaging release, with no change to what the plugin does or to anything the model reads: `tests/e2e/modeltext.py` renders the same 31,396 texts as at `c82a535`.
+
+- `eval/` is no longer on `main`, so an install copies 38 files, about half a megabyte, instead of 472 files and 5.5 MB. The evaluation's evidence (the harness, every run's data and the tasks) stays at the tag [`v0.1.0`](https://github.com/sebastiandrazsky/onbudget/tree/v0.1.0/eval) and at `eval-freeze`, `eval-freeze-2` and `eval-freeze-3`, and the documents link there.
+- The checks of the evaluation's own tools moved with them, to the tag `v0.1.0` and the development archive: `tests/e2e/dialogs.py` (the smoke script's permission-dialog matcher, 28 checks) and the cap plugin's checks in `run.py` (6) and `wire.py` (2). On `main`, `run.py` has 51 checks and `wire.py` 12 (16 with effortless), and CI no longer runs `dialogs.py`. Every check of onbudget itself is unchanged.
+- Listing metadata for the plugin directory: `PRIVACY.md` states what onbudget reads, writes and sends; `.claude-plugin/plugin.json` gains `displayName`, `documentationUrl`, `supportUrl` and `privacyPolicyUrl`, and the keyword `usage-limits` replaces `function-hooks`. The README links to `PRIVACY.md` and says that the store keeps the first line of each budgeted task.
+- The known issue of 0.1.0 remains: in `claude -p`, set the budget with `ONBUDGET` (see below).
 
 ## 0.1.0 (tagged 2026-10-21)
 
@@ -27,12 +32,12 @@ First version.
 - The budget survives compaction, a reload, a resumed session and a switch to another session, and ends with `/clear`.
 - Requires Claude Code 2.1.287 or later, where plugin mods are on by default. Every suite passed on 2.1.288, 2.1.304 and 2.1.306; earlier builds of this version also on 2.1.289 and 2.1.299.
 - A GitHub Actions workflow, with read-only permissions and actions pinned by commit, validates the plugin and runs its in-engine tests, the scripted end-to-end checks and the fake-API checks against the current Claude Code on every push and weekly.
-- The evaluation is published with its raw data: `REPORT.md`, `eval/`, `eval/TASKS.md` (each benchmark task's upstream repository, commits and hidden tests), `eval/rebuild_tasks.py` (rebuilds the tasks from GitHub and PyPI) and the licence notices of the upstream projects quoted there.
-- The paid smoke script `eval/interactive_smoke.py` now refuses every permission prompt except a create or edit of a file inside its own working folder (`eval/README.md`).
+- The evaluation is published with its raw data: `REPORT.md`, [`eval/`](https://github.com/sebastiandrazsky/onbudget/tree/v0.1.0/eval), [`eval/TASKS.md`](https://github.com/sebastiandrazsky/onbudget/blob/v0.1.0/eval/TASKS.md) (each benchmark task's upstream repository, commits and hidden tests), [`eval/rebuild_tasks.py`](https://github.com/sebastiandrazsky/onbudget/blob/v0.1.0/eval/rebuild_tasks.py) (rebuilds the tasks from GitHub and PyPI) and the licence notices of the upstream projects quoted there.
+- The paid smoke script [`eval/interactive_smoke.py`](https://github.com/sebastiandrazsky/onbudget/blob/v0.1.0/eval/interactive_smoke.py) now refuses every permission prompt except a create or edit of a file inside its own working folder ([`eval/README.md`](https://github.com/sebastiandrazsky/onbudget/blob/v0.1.0/eval/README.md)).
 - The event log is off unless `ONBUDGET_LOG=1`, and goes to one fixed file in the plugin's own folder, `log/events.jsonl` (then `log/events.1.jsonl`, ... every 200 rows); no variable or setting can point it anywhere else. Earlier candidates wrote it wherever `ONBUDGET_LOG` named, which a mistyped value could have aimed at another file.
 - The effort cap is set only by the `effort` option (default `medium`, unchanged); the variable `ONBUDGET_EFFORT` of earlier candidates is gone. The remaining variables are `ONBUDGET`, `ONBUDGET_LOG` and Claude Code's own `CLAUDE_CODE_TOTAL_TOKENS_REMINDER`, none of them a secret.
-- The README says what the plugin adds to the prompts it submits (rendered from its code and checked by `tests/e2e/readme.py`), what it writes, what each hook does, and why it reads each variable. The plugin has an icon, `.claude-plugin/icon.png`.
-- CI installs Claude Code from npm instead of piping an install script into a shell, and also runs `tests/e2e/dialogs.py`.
+- The README says what the plugin adds to the prompts it submits (rendered from its code and checked by `tests/e2e/readme.py`), what it writes, what each hook does, and why it reads each variable. The plugin has an icon.
+- CI installs Claude Code from npm instead of piping an install script into a shell, and also runs `tests/e2e/dialogs.py` (from 0.1.1 those checks live with the evaluation's tools, at the tag `v0.1.0` and in the development archive).
 
 The tag `v0.1.0` first pointed at commit `c82a535`. An acceptance run on 2026-10-21, in real terminal sessions with the real model on Claude Code 2.1.304, found budget enforcement correct and rejected that commit for two display defects: every line the plugin wrote to the transcript began `onbudget: onbudget:`, and the status line put the tier last, where an 80-column terminal cut it off together with the account limit that binds. The release commit fixes both, rewrites the status line and the end-of-task line under budgets counted in points, and corrects the documents; the tag moved once, from `c82a535` to it. What the model receives is byte for byte what it received at `c82a535`: `tests/e2e/modeltext.py` renders it from both commits and compares. A live re-check of the fixes on Claude Code 2.1.306 with Claude Opus 5.5 showed one prefix on the end-of-task line, the 5-hour limit named on the status line, and the end line of a `week` budget in points. The status line through a dollar budget that runs out was seen live up to CRITICAL, but the stop itself was not reached live, because the test driver left a permission prompt open. It is accepted on the stop seen live on 2.1.304 at `c82a535`, whose stop path is unchanged, and on the stop notice and STOPPED line drawn by 2.1.306 with a scripted model.
 

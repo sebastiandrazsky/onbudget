@@ -1,1 +1,0 @@
-{ "name": "mockmodel", "version": "0.0.0", "description": "Zero-cost self-test double: answers turn.step from a script and never sends a request." }
