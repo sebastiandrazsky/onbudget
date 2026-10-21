@@ -11,6 +11,7 @@
 //            five_hour?: number, seven_day?: number (the readings that arrive with this answer),
 //            sleep_ms?: how long the answer takes (for interrupting a request in flight, or keeping one in flight) }
 // A compaction is answered here too (a one-line summary), since the engine's own would need the model.
+// MOCK_STATUS (optional): a status line of the mock's own, set at the start, to measure how much of one Claude Code shows.
 import type { Register } from 'claude-code'
 
 type Reply = { bash?: string; agents?: string[]; text?: string; cost?: number; five_hour?: number; seven_day?: number; sleep_ms?: number }
@@ -40,6 +41,11 @@ async function note($: any, row: unknown): Promise<void> {
 }
 
 export const register: Register = (on: any) => {
+  on('session.start', async ($: any, e: any, next: any) => {
+    try { const text = await $.env.get('MOCK_STATUS'); if (text) $.ui.status(text) } catch { /* ignore */ }
+    return next(e)
+  })
+
   on('turn.step', async function* ($: any, e: any, next: any) {
     await load($)
     let reply: Reply

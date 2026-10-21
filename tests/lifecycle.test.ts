@@ -238,7 +238,7 @@ describe('what a budget survives', () => {
     const w = world(on, { store: { 'budget:session-1': saved() } })
     w.cost = 6.6 // ten cents were spent after the last save
     await start($)
-    expect(w.status[w.status.length - 1]).toContain('spent $1.50 of $4.00')
+    expect(w.status[w.status.length - 1]).toBe('tier MEDIUM · $2.30 left · budget $4.00')
     await step($)
     expect((await tool($)).context).toEqual(['[budget] spent $1.70 of $4.00 | left before the stop $2.10 (53%) | tier MEDIUM'])
   })

@@ -8,22 +8,25 @@ Give a Claude Code task a spending limit, in dollars or as a share of your 5-hou
 /onbudget week Write the migration
 ```
 
-What you see, from a real terminal session on Claude Code 2.1.304 (the evaluation's smoke session, with the spaces the terminal capture lost put back):
+What you see, rendered by Claude Code with a scripted model: Claude Code 2.1.306 in an 80-column terminal, with the test suite's scripted model answering in place of Claude, at no cost. The three passages are copied from the screen as drawn, and nothing in them is edited.
 
 ```
-onbudget: spent $0.15 of $0.50 | left before the stop $0.27 (54%) | tier …
+  ⚠ onbudget: tier MEDIUM · $0.21 left · budget $0.50
 
-[onbudget] Stopped: $0.07 of $0.07 is used, and the next request could cost up to $0.07, so it was not sent.
-This notice comes from the onbudget plugin, not from Claude. The work was interrupted: treat anything Claude
-has not reported as complete and verified as unfinished. To go on: /onbudget off (no budget), or
-/onbudget <budget> <instructions> (a new budget).
+⏺ [onbudget] Stopped: $0.07 of $0.12 is used, and the next request could cost up
+  to $0.07, so it was not sent.
+  This notice comes from the onbudget plugin, not from Claude. The work was
+  interrupted: treat anything Claude has not reported as complete and verified
+  as unfinished.
+  To go on: /onbudget off (no budget), or /onbudget <budget> <instructions> (a
+  new budget).
 
-onbudget: Claude ended the task with STATUS: COMPLETE, at $0.15 of $0.50; the 5-hour window moved 0 points,
-the weekly window moved 0 points (whole points, whole account). The budget is still open: a follow-up prompt
-draws on it, and /onbudget off removes it.
+⏺ onbudget: Claude ended the task with STATUS: COMPLETE, at $0.20 of
+  $0.50. The budget is still open: a follow-up prompt draws on it, and
+  /onbudget off removes it.
 ```
 
-The first line is Claude Code's status line under the prompt, cut at the terminal's width. The second is a stop, under a $0.07 budget. The third ends a task.
+The first line is Claude Code's status line under the prompt: the tier, what is left before the stop, and the budget. Claude Code cuts a plugin's status line at the terminal's width: after `onbudget: ` it shows the width less 17 characters, 63 in an 80-column terminal. onbudget's line is at most 60 characters, so it shows whole from 77 columns, and in a narrower terminal the budget is cut first. The second passage is a stop, under a $0.12 budget. The third ends a task.
 
 Install (Claude Code 2.1.287 or later):
 
@@ -62,6 +65,7 @@ At $2.47 on Claude Code 2.1.304 (the release current on 2026-10-20):
 
 - No onbudget run has gone over its budget: 12 runs with the real model, on Claude Code 2.1.289 and 2.1.304 (10 seven-task sessions and 2 single tasks). 11 of the 12 ended by themselves with a report.
 - On 2.1.304 it is parity: onbudget finished no more tasks than plain Claude Code under its own cap or a sentence in the prompt. With n of 2 or 3, a difference of a task or less is noise. The six-task `--max-budget-usd` run did most of its work in seven subagents that Claude Code ran on Claude Sonnet 5.5 ($1.32 of its $2.25); the other, Opus only, finished 5 of 7.
+- The build that ships is not byte for byte the one round two ran (git tag `eval-freeze-3`). `git diff eval-freeze-3 -- hooks .claude-plugin` shows weekly sizing (a weekly budget counts the window's points unless `usdPerPointWeek` is set) and display text only: the command's answers, the status line, the end-of-task line and the manifest's descriptions. Rendered side by side with `tests/e2e/modeltext.py`, what the model receives is identical under dollar and 5-hour budgets, which is what round two ran, and differs only under weekly budgets.
 - On 2.1.289, with an earlier build of onbudget (git tag `eval-freeze`), plain Claude Code under a cap split the work across subagents in six of eight runs and was cut off mid-work; that round's table is in `REPORT.md`.
 - Every run had a one-line `~/CLAUDE.md` in context, a pointer to a writing-style skill.
 
@@ -103,7 +107,7 @@ Type `/onbudget`. It should answer `onbudget: no budget is set` and name its ver
 
 Nothing outside the plugin enforces a budget. If the plugin does not run, requests are neither metered nor refused, and `ONBUDGET` is ignored, so a headless task runs with no budget at all. That happens when Claude Code starts in safe mode (`--safe-mode`) or `--bare` mode, which load no plugins; when an organisation's managed settings turn plugins or mods off; when Anthropic switches the mods API off; and when Claude Code unloads the plugin (see "The hooks worker" under Limitations). A plugin that runs before onbudget can also skip its hooks; from 2.1.304 the transcript names the plugin and the event when it does. A request whose hook does not run is not checked, though its cost is in the ledger the next check reads. A hook that runs and fails, or runs out of time, is different: while a budget is set, the request is not sent, and the plugin says so (`[onbudget] Not sent: the budget check could not be completed`).
 
-How to tell. In a terminal session, `/onbudget` is offered when you type `/onb`, and once a budget is set a status line shows the spend under the prompt. Without the plugin, `/onbudget` is not offered and, typed anyway, is sent to Claude as an ordinary prompt. In a headless run, `claude -p "/onbudget"` prints `onbudget: no budget is set` without a model request when the plugin is running; or set `ONBUDGET_LOG` to a file name, and if the file is not there after the run, the plugin did not run.
+How to tell. In a terminal session, `/onbudget` is offered when you type `/onb`, and once a budget is set a status line under the prompt shows the tier and what is left. Without the plugin, `/onbudget` is not offered and, typed anyway, is sent to Claude as an ordinary prompt. In a headless run, `claude -p "/onbudget"` prints `onbudget: no budget is set` without a model request when the plugin is running; or set `ONBUDGET_LOG` to a file name, and if the file is not there after the run, the plugin did not run.
 
 ## Use
 
@@ -115,10 +119,10 @@ How to tell. In a terminal session, `/onbudget` is offered when you type `/onb`,
 
 The task is sent with a short protocol appended, which you can read in the transcript: the budget, how to work under it, and how to report at the end. From then on:
 
-- A status line under the prompt shows the spend, for example `onbudget: spent $1.23 of $3.00 | left before the stop $1.60 (53%) | tier MEDIUM`.
-- After each tool result Claude is shown the same line. "Left before the stop" is exactly what the stop rule still allows, so the line reads $0.00 when the next request will be refused.
+- A status line under the prompt shows the tier, what is left before the stop and the budget, for example `onbudget: tier MEDIUM · $1.60 left · budget $3.00`. When one of the account's windows is closer than the budget it is named, as in `tier HIGH · $61.16 left (5h limit) · budget $500.00`. Under a budget counted in points the figures are points, as in `tier HIGH · 78 pts left · budget 81 pts (week)`, and a budget that has stopped reads `STOPPED · $2.91 of $3.00 · /onbudget off`. `/onbudget` gives the full reading.
+- After each tool result Claude is shown the meter, a longer line with the same figures: `[budget] spent $1.23 of $3.00 | left before the stop $1.60 (53%) | tier MEDIUM`. "Left before the stop" is exactly what the stop rule still allows, so the meter and the status line read $0.00 when the next request will be refused.
 - Reasoning effort is capped at `medium` while the budget is set. Your setting comes back when the budget is removed.
-- When Claude ends the task with its STATUS line, the plugin adds a line of its own in a terminal session: the spend, how the task ended, how many whole points each usage window moved, and that the budget is still open.
+- When Claude ends the task with its STATUS line, the plugin adds a line of its own in a terminal session: how the task ended, the spend against the budget, how many whole points each usage window moved, and that the budget is still open. Under a budget counted in points it gives the points the window moved against the points budgeted, and the task's own spend in dollars apart.
 
 Follow-up prompts draw on the same budget. Once the budget has stopped the session, a further prompt is turned away with the reason, and nothing is spent on it. `/onbudget off` removes the budget, and `/onbudget <budget> <instructions>` replaces it with a new one.
 
@@ -144,7 +148,7 @@ The budget is the points between the window's reading and 99% when you give the 
 
 ### Every budget is also bounded by what the account has left
 
-The meter follows whichever comes first, the budget or one of the windows, and names the window when it is the closer one: `left before the stop $0.40 (17%), set by the account's 5-hour limit`. A budget larger than what a window has left says so when you set it and runs against the window. A window with nothing left refuses the budget in one line, and a new session that has no reading of its own uses the last reading seen on this machine for that check, as long as that window has not reset since.
+The meter follows whichever comes first, the budget or one of the windows, and names the window when it is the closer one: `left before the stop $0.40 (17%), set by the account's 5-hour limit`. The status line marks it `(5h limit)`. A budget larger than what a window has left says so when you set it and runs against the window. A window with nothing left refuses the budget in one line, and a new session that has no reading of its own uses the last reading seen on this machine for that check, as long as that window has not reset since.
 
 Accounts that report no usage window (an API key, a gateway) have no such limits: dollar budgets work as described, and budgets counted in a window cannot be enforced. A gateway's own spend limit, which Claude Code also reports, is not used.
 
@@ -163,7 +167,7 @@ ONBUDGET='5h' claude -p "Build this application"
 
 **The stop.** A request cannot be priced before it is sent, so the plugin holds back what the dearest request so far has cost: refuse when `spent + reserve × (requests in flight + 1) ≥ budget`. A window of the account is a limit of the same shape. With a rate, its room is converted into the task's dollars from the reading that came with the latest answer; without one, each request is reckoned to move the window by a point, or by the largest step seen between two readings.
 
-**The meter.** Claude is told the budget once, with the task, and shown the meter after every tool result. The tier is HIGH from 70% left, MEDIUM from 30%, LOW from 10%, and CRITICAL below that or when two requests' worth or less is left at the cost of the dearest so far (two points, for a budget counted in points). With requests one at a time, each costing no more than the dearest before it, Claude has therefore read CRITICAL at least twice before a request can be refused. The protocol asks Claude to stop adding scope at LOW, to leave the tree in its best verified state at CRITICAL, to verify before it claims anything, and to end with what is complete, what is unfinished and what was not verified. After a compaction the protocol is sent again.
+**The meter.** Claude is told the budget once, with the task, and shown the meter after every tool result. The tier is HIGH from 70% left, MEDIUM from 30%, LOW from 10%, and CRITICAL below that or when two requests' worth or less is left at the cost of the dearest so far (two points, for a budget counted in points). Claude has therefore read CRITICAL at least twice before a request can be refused, on one condition: requests one at a time, none costing more than the dearest before it. At small budgets that condition often fails. In the acceptance of 2026-10-21, the three live runs that came near the stop ($0.12, $0.15 and $0.25, on Claude Opus 5.5) each read CRITICAL once, not twice, because a request cost more than any before it; none passed its budget. The protocol asks Claude to stop adding scope at LOW, to leave the tree in its best verified state at CRITICAL, to verify before it claims anything, and to end with what is complete, what is unfinished and what was not verified. After a compaction the protocol is sent again.
 
 **Claude Code's countdown.** While a budget is open, onbudget leaves Claude Code's `<total_tokens>` countdown out of new requests, because it is not the task's budget. This is partial: the copy in the system prompt stays. Its effect on the model was never measured. An attachment already sent keeps the answer it was sent with, and a resumed session gets the same answers again, so the prompt cache's prefix does not change. A countdown under a million tokens could be a budget you set yourself, and is kept; so is any countdown when `CLAUDE_CODE_TOTAL_TOKENS_REMINDER` is set.
 
@@ -181,13 +185,15 @@ ONBUDGET='5h' claude -p "Build this application"
 
 It reads the session's cost and usage-window readings, the session id and model, those four environment variables, and its own store. It writes its own store, a JSON file under your Claude config directory (`plugins/store/onbudget_*.json`): the budget of each session that has one, calibration records (dollars spent and points moved per session, window and model, nothing else), the newest reading of each window with its reset time, and, per budgeted session, which countdowns it left out. Records older than 30 days are deleted. It writes a status line, and an event log only if `ONBUDGET_LOG` names a file.
 
-While a budget is set, and only then, it changes four things: the effort of each request, one line of context after each tool result and with each follow-up prompt, whether a request is sent at all, and whether Claude Code's countdown goes into a new request. The plugin is two files, `hooks/core.ts` (the logic) and `hooks/register.ts` (the hooks), about 1,200 lines together. Installing it copies the whole repository, `eval/` and `tests/` included; the plugin never loads either.
+While a budget is set, and only then, it changes four things: the effort of each request, one line of context after each tool result and with each follow-up prompt, whether a request is sent at all, and whether Claude Code's countdown goes into a new request. The plugin is two files, `hooks/core.ts` (the logic) and `hooks/register.ts` (the hooks), about 1,350 lines together. Installing it copies the whole repository, `eval/` and `tests/` included; the plugin never loads either.
 
 ## Limitations
 
 **One request can pass the budget.** The API cannot cap what one request costs, and a request can cost more than any before it, usually the first after a long idle period, which re-reads the whole conversation at the cache-write price. That request overruns the budget, can skip the CRITICAL tier, and the plugin stops at the next one with the real figure. A compaction's own request is sent by Claude Code and is not checked; its cost is counted.
 
 **Claude Code's own requests are counted, not stopped.** In a terminal session Claude Code makes a request of its own when a turn ends, to suggest your next prompt. It does not pass through the hook the plugin refuses requests on, so the spend can end a few cents past the budget: in a test on Claude Code 2.1.289, a $0.07 budget stopped at $0.069 finished at $0.115. `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false` removes that request. Headless runs do not make it.
+
+**A budget that fits only a few requests gives little warning.** In the acceptance runs on Claude Opus 5.5, the first request of a session cost about $0.03 to $0.07 and the next up to three times as much. Before any request has been priced the reserve is $0.05, so at $0.12 a first request of $0.065 left no room for a second, and the meter had no request at CRITICAL to show. Give a task room for several of its dearest requests if Claude is to see the stop coming.
 
 **It lands early.** The meter makes the model wrap up before the stop, so part of the budget usually goes unspent: 19 to 25% in the second round's three onbudget runs, which all ended at LOW. Under a budget counted in points the meter turns CRITICAL with two points left, which is a large share of a small weekly budget.
 
@@ -231,12 +237,13 @@ claude plugin validate --strict .                            # the marketplace m
 claude plugin test .                                         # tests/*.test.ts, run inside the engine
 python3 tests/e2e/run.py                                     # a real `claude -p` with a scripted model
 python3 tests/e2e/wire.py                                    # a real `claude -p` against a fake API on localhost: what is sent
-python3 tests/e2e/interactive.py                             # a real terminal session through a pseudo-terminal
+python3 tests/e2e/interactive.py                             # a real terminal session through a pseudo-terminal, 80 columns
+python3 tests/e2e/modeltext.py <build A> <build B>           # what the model receives from two builds, compared byte for byte
 ```
 
 None of these makes a model request or spends anything. `ONBUDGET_CLAUDE_BIN` points the Python suites at another Claude Code build, and `EFFORTLESS_DIR` adds effortless to `wire.py`. The GitHub workflow runs the first five against the current Claude Code release on every push and weekly.
 
-The test suites start Claude Code processes with their own config directories, a scripted model or a fake Anthropic API on 127.0.0.1, and a fake key. `eval/` is the paid evaluation: it starts headless Claude Code sessions under your own login, runs the test suites of the task repositories, and before each session checks that `https://api.anthropic.com` answers and that `claude auth status` reports a login. `eval/README.md` explains how to run it and what it costs, `eval/TASKS.md` identifies the tasks, `eval/rebuild_tasks.py` rebuilds them from GitHub and PyPI, and `eval/runs/` keeps each run's logs and scores, with this machine's home path replaced by `/Users/user`.
+The test suites start Claude Code processes with a scripted model or a fake Anthropic API on 127.0.0.1, and a fake key. `run.py` and `wire.py` give each process a config directory of its own; `interactive.py` uses yours, because a new one stops at the first-run screens, and removes what its sessions stored there when it ends. `eval/` is the paid evaluation: it starts headless Claude Code sessions under your own login, runs the test suites of the task repositories, and before each session checks that `https://api.anthropic.com` answers and that `claude auth status` reports a login. `eval/README.md` explains how to run it and what it costs, `eval/TASKS.md` identifies the tasks, `eval/rebuild_tasks.py` rebuilds them from GitHub and PyPI, and `eval/runs/` keeps each run's logs and scores, with this machine's home path replaced by `/Users/user`.
 
 Every change users should receive bumps `version` in `.claude-plugin/plugin.json`, in both places in `.claude-plugin/marketplace.json`, and `VERSION` in `hooks/core.ts` (a test compares them), with a `CHANGELOG.md` entry: Claude Code updates an installed plugin only when its version changes.
 

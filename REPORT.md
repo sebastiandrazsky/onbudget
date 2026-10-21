@@ -463,3 +463,60 @@ All of these spend nothing.
 - **The directory portal's Validate, and whether the name is free.** Only the portal can say.
 - **The facts about native features and other plugins.** These were given in the brief; I did not re-check them.
 - **The countdown's effect on the model.**
+
+## Addendum, 2026-10-21: acceptance, and the final candidate
+
+On 2026-10-21 the release candidate (tag `v0.1.0` on commit `c82a535` of the published repository) went through an acceptance run in real terminal sessions with the real model, on Claude Code 2.1.304. Its evidence stays private, outside both repositories, because its screen captures show this machine. It found the budget enforcement correct: the stop, the accounting, the follow-up refusal, `off`, the percentage budget, `5h` and `week` sizing, the account limits, Esc, compaction, resume, `/clear` and headless runs all behaved as documented, and no spend passed a budget. It rejected the candidate for two display defects, D1 and D2, and found four errors in `CHECKLIST.md`. This addendum is the pass that corrects them. The meter, the stop rule and every text the model reads are unchanged.
+
+### D1. Lines in the transcript began "onbudget: onbudget:"
+
+Claude Code starts a line a mod writes with `$.ui.log` with the mod's name (mods API, "Show something without starting a turn"), and every such line of onbudget's began with its name as well. `say()` now drops it, as the acceptance's patch proposed. Those lines are shown to the person and never sent to the model.
+
+### D2. The status line lost its tier
+
+Claude Code fits a mod's status line to the terminal: the line, the mod's name included, gets the terminal's width less 7 columns, and the rest is cut with "…". After `onbudget: ` that is 63 characters at 80 columns, 83 at 100 and 103 at 120. Measured with a status line of the scripted model's own (`tests/e2e/interactive.py`, and a probe at 60, 80, 100, 120, 160 and 220 columns), identical on 2.1.304 and 2.1.306. The acceptance's pseudo-terminal never set a window size, so Claude Code took Node's default of 80 columns, although its notes say 160; that is where its figure of 63 comes from. The old status line was the model's meter, 80 to 120 characters with the tier last, so at 80 columns the tier was always cut, and with it "set by the account's 5-hour limit".
+
+The status line is now its own text (`statusLine` in `hooks/core.ts`), at most 60 characters, so it shows whole in a terminal 77 columns wide or more. In a narrower one the end goes first, so its fields are in order of importance: the tier; what is left before the stop, with its unit; the budget; and, when an account window binds rather than the budget, that window in a few characters.
+
+```
+tier MEDIUM · $1.60 left · budget $3.00
+tier HIGH · $61.16 left (5h limit) · budget $500.00
+tier HIGH · $1.80 left · budget $2.40 (3% 5h)
+tier HIGH · 78 pts left · budget 81 pts (week)
+no reading yet · budget week (not sized yet)
+STOPPED · $2.91 of $3.00 · /onbudget off
+STOPPED (5h limit) · 79 of 81 pts (week) · /onbudget off
+```
+
+Under a budget counted in points everything is in points, a limit that converts to dollars included. Large figures are kept short (`$12346`, `$5M`). When a form is too long, the line drops, in this order, what a converted budget came to, then the word "tier", then the reason a stopped budget gives; the fields themselves stay. `tests/status.test.ts` checks the length and every field over more than ten thousand states (each budget form, dollar sizes from $0.60 to $1e15 and point sizes from 3 to 100, no wall, walls with and without a rate, both windows, spends from nothing to past the budget, requests in flight, every stop event), plus exact lines for the states above. `tests/e2e/interactive.py` now runs at 80 columns through a small terminal emulator, because Claude Code's renderer skips cells that have not changed, so the bytes alone do not spell out the screen. It checks on what Claude Code draws: the tier and the amount left as a $1 budget runs down, the stopped line, the 5-hour limit named when it binds under `$500`, the line under Claude's STATUS line with one prefix, the end line and the status line of a `week` budget in points, and how much of a status line the build shows.
+
+### The end-of-task line under a budget counted in points
+
+It read "at $0.16 of 81 points of the weekly usage window". It now gives the points the window moved against the points budgeted, the other window's movement, and the task's own spend in dollars apart: "Claude ended the task with STATUS: COMPLETE: the weekly window moved 1 of the 81 points budgeted, the 5-hour window moved 0 points (whole points, whole account); the task's own spend was $0.16." Under a dollar budget it is unchanged.
+
+### CRITICAL was read once, not twice
+
+In all three live runs that came near the stop, the meter read CRITICAL once. At $0.12 the first request cost $0.065, above the $0.05 reserve held before any request is priced, so one request left no room for a second. At $0.15 and $0.25 the second request cost about three times the first. That is the stated exception (a request dearer than any before it), and none of the three passed its budget, but at small budgets it is the normal case. The meter and the stop rule are unchanged in 0.1.0. The README now states the condition beside the guarantee, what the acceptance saw, and that a budget which fits only a few requests gives little warning; the release notes and `CHECKLIST.md` say the same.
+
+### What the model reads is unchanged
+
+`tests/e2e/modeltext.py` renders every text the model can receive from onbudget in two plugin folders and compares the bytes. It runs the plugin's own hooks in a scripted world and captures what reaches the model: the task with its protocol, the meter after each tool result (main thread and subagents, with requests in flight), the note with a follow-up prompt, the reminder after a compaction, the refusal of each stop event, both fail-closed answers, the effort each request is sent at, and every countdown attachment. Its scenarios cover a dollar budget, a 5-hour percentage budget converted and in points, a weekly percentage budget, `5h` converted and in points, `week` in points, before it is sized and never sized, a dollar budget bound by a 5-hour wall with and without a rate, the calibrated backstop, `ONBUDGET` and `ONBUDGET_EFFORT`, the command typed as prompt text, and `CLAUDE_CODE_TOTAL_TOKENS_REMINDER`. Beside these it calls the text builders of `hooks/core.ts` directly over 31,259 states: the meter, the budget as stated, the protocol, the reminder, the refusals and the countdown test. Because the money and points formatters feed both the display and the model's text, a diff of functions would not show this; the rendering does. Both folders get the same harness (the render file and `tests/world.ts` from the newer one), so only the plugins differ.
+
+Against `c82a535`, all 31,396 texts are identical, and the run reports every state it was meant to reach (all four tiers, a binding window, each stop event, a stop with requests running, the follow-up, the reminder, the countdown left out and kept). As a control, adding one trailing space to the shared `plural` helper makes 8,767 of them differ. Against `eval-freeze-3`, the build round two ran, 11 differ, all under weekly budgets: that is the weekly sizing of the first release addendum. Under dollar and 5-hour budgets what the model receives is what it received in round two. `run.py`'s exact meter comparisons and `wire.py`'s requests on the wire pass as before.
+
+### CHECKLIST.md
+
+- 1.1: the typeahead shows the hint after `/onbudget ` with its space, not after `/onb`.
+- 4.2 and 10.3: "CRITICAL for at least two steps" now carries its condition.
+- 9.7: the clean-copy command is named and placed (under "The publication copy" above), not "at the end of REPORT.md".
+- Added: the folder-trust question starts on "No, exit"; a prompt the plugin turns away comes back into the input box (Claude Code 2.1.299 and later), to be cleared before typing on.
+- The status-line and end-line texts quoted throughout are the new ones.
+
+### The tag
+
+`v0.1.0` moves once, from `c82a535` (tag object `18f452f`) to the release commit. The release commit is the commit that puts the README's first-screen capture on top of the commit re-checked with the real model; it changes only `README.md`, so it cannot name its own SHA here. `RELEASE-STATE.md`, kept with the acceptance evidence, records the re-checked commit, the release commit and the tag object. The `eval-freeze` tags do not move.
+
+### Where I disagree, or did something other than asked
+
+- **"Cut at the terminal's width" was true.** The brief asked for that phrase to be removed, on the acceptance's reading that Claude Code cuts at a fixed 63 characters. The measurements above show the cut follows the width, so the README keeps the statement and makes it exact: 63 characters after the plugin's name at 80 columns, the width less 17 in general. The design target of 60 is unchanged.
+- **The tested range now ends at 2.1.306.** Every zero-cost suite, the terminal suite included, passed on 2.1.288, 2.1.304 and 2.1.306 (installed into a scratch npm prefix, not as a global update), so `/onbudget` and the documents say "2.1.288 to 2.1.306".

@@ -11,11 +11,11 @@ mkdir -p /tmp/onbudget-check && cd /tmp/onbudget-check && git init -q
 claude --plugin-dir ~/Documents/onbudget
 ```
 
-Accept the folder-trust question for the scratch folder. During the steps below Claude Code will ask before it creates or edits a file there; answer Yes. If it offers to install a language-server plugin, that is Claude Code's own offer and has nothing to do with onbudget.
+Accept the folder-trust question for the scratch folder: it starts on "No, exit", so move to "Yes, I trust this folder" before you press Enter. During the steps below Claude Code will ask before it creates or edits a file there; answer Yes. If it offers to install a language-server plugin, that is Claude Code's own offer and has nothing to do with onbudget.
 
 ## 1. Nothing happens until you ask
 
-- [ ] Type `/onb`. The typeahead offers `/onbudget` with the hint `<$X | N% 5h | N% week | 5h | week> <task> · off`.
+- [ ] Type `/onb`. The typeahead offers `/onbudget`. Type `/onbudget ` with the space: the hint `<$X | N% 5h | N% week | 5h | week> <task> · off` follows it.
 - [ ] `/onbudget` answers `no budget is set`, then the usage line, then one calibration line per window.
 - [ ] Send any small prompt (`say hi`). No status line appears under the prompt and the answer looks as it always does.
 
@@ -24,11 +24,11 @@ Accept the folder-trust question for the scratch folder. During the steps below 
 - [ ] `/onbudget $0.60 Write fizzbuzz.py with a pytest file for it, and run the tests.`
 - [ ] The command answers `budget $0.60 set` and says effort is capped at medium.
 - [ ] Your task appears in the transcript as your own prompt, followed by the protocol text that starts `You have a hard usage budget of $0.60`.
-- [ ] A status line under the prompt reads `onbudget: spent $… of $0.60 | left before the stop $… (…%) | tier …` and moves as Claude works.
+- [ ] A status line under the prompt reads `onbudget: tier … · $… left · budget $0.60`, whole, and moves as Claude works.
 - [ ] Claude runs the tests before it finishes.
 - [ ] Its last message says what is complete and how it was verified, and ends with `STATUS: COMPLETE`.
-- [ ] Below it, a line from the plugin: `onbudget: Claude ended the task with STATUS: COMPLETE, at $… of $0.60; the 5-hour window moved … points, the weekly window moved … (whole points, whole account). The budget is still open…`
-- [ ] `/onbudget` shows the spend, the request count, the dearest request so far, the points each window moved, and `onbudget 0.1.0, tested on Claude Code 2.1.288 to 2.1.304`.
+- [ ] Below it, a line from the plugin, with its name once: `onbudget: Claude ended the task with STATUS: COMPLETE, at $… of $0.60; the 5-hour window moved … points, the weekly window moved … (whole points, whole account). The budget is still open…`
+- [ ] `/onbudget` shows the spend, the request count, the dearest request so far, the points each window moved, and `onbudget 0.1.0, tested on Claude Code 2.1.288 to 2.1.306`.
 
 ## 3. A follow-up on the same budget
 
@@ -37,10 +37,10 @@ Accept the folder-trust question for the scratch folder. During the steps below 
 ## 4. A budget that runs out
 
 - [ ] `/onbudget $0.12 Write a 3,000-word design document for a plugin system, in a file, section by section.`
-- [ ] As the spend nears the stop the status line's tier turns CRITICAL, and stays there for at least two of Claude's steps before the stop.
+- [ ] As the spend nears the stop the status line's tier turns CRITICAL, with what is left beside it. It stays CRITICAL for two of Claude's steps only if no request costs more than the dearest before it; at a budget this small the next request often costs several times the first, and then CRITICAL shows for one step or none (the acceptance of 2026-10-21 saw one).
 - [ ] Before long a message appears that begins `[onbudget] Stopped:` and states the spend, the reserve, and that it comes from the plugin and not from Claude.
-- [ ] The status line reads `onbudget: stopped at $… of $0.12: …`. The figure at the stop is at or under $0.12, or over it by less than one request. It may rise by a few cents afterwards: that is Claude Code's own prompt-suggestion request (see the README's limitations).
-- [ ] Send `continue`. It is not sent: a line says the budget has stopped this session and how to go on.
+- [ ] The status line reads `onbudget: STOPPED · $… of $0.12 · /onbudget off`. The figure at the stop is at or under $0.12, or over it by less than one request. It may rise by a few cents afterwards: that is Claude Code's own prompt-suggestion request (see the README's limitations).
+- [ ] Send `continue`. It is not sent: a line says the budget has stopped this session and how to go on, and Claude Code puts `continue` back into the input box. Clear it (Ctrl-U) before you type on.
 - [ ] `/onbudget off` answers `budget removed (…)`, the status line disappears, and `continue` now gets a normal answer.
 
 ## 5. A percentage budget
@@ -56,8 +56,8 @@ Accept the folder-trust question for the scratch folder. During the steps below 
 - [ ] `/onbudget 5h Add a docstring to fizzbuzz.py.` The answer says `budget … (what the 5-hour usage window had left) set` and gives the window's reading: with a rate, `The window is at N%: M points are left below 99%, about $…`; without one, that the budget is the window's own points.
 - [ ] While it runs, `/onbudget` lists `account limit, 5-hour window: at N% …` and `account limit, weekly window: …`, each with where onbudget stops for it.
 - [ ] `/onbudget off`.
-- [ ] `/onbudget $500 Reply with the word ok.` (unless you really have $500 of 5-hour window left). The answer says the account's 5-hour window has less left than the budget, about how much, and that the task runs against that. The status line names the 5-hour limit. `/onbudget off` once Claude has answered.
-- [ ] `/onbudget week Reply with the word ok.` Unless you set `usdPerPointWeek`, the answer gives the weekly figure in points, says a weekly budget counts the window's own points, and says it stops about two points before 99%. `/onbudget off`.
+- [ ] `/onbudget $500 Reply with the word ok.` (unless you really have $500 of 5-hour window left). The answer says the account's 5-hour window has less left than the budget, about how much, and that the task runs against that. The status line names the 5-hour limit: `onbudget: tier … · … left (5h limit) · budget $500.00`. `/onbudget off` once Claude has answered.
+- [ ] `/onbudget week Reply with the word ok.` Unless you set `usdPerPointWeek`, the answer gives the weekly figure in points, says a weekly budget counts the window's own points, and says it stops about two points before 99%. The status line is in points: `onbudget: tier … · … pts left · budget … pts (week)`. `/onbudget off`.
 - [ ] If a window happens to be at 97% or more: `/onbudget $1 anything` is refused in one line, and nothing is sent.
 
 ## 7. Interrupt, compact, resume, clear
@@ -92,15 +92,15 @@ claude -p --safe-mode --plugin-dir ~/Documents/onbudget "/onbudget"
 - [ ] `REPORT.md` says the evaluation finished, and its numbers match the table in `README.md`.
 - [ ] In a clean config directory, `claude plugin marketplace add sebastiandrazsky/onbudget` then `claude plugin install onbudget@onbudget` installs it, and `/onbudget` answers (needs read access to the repository while it is private).
 - [ ] The repository's GitHub workflow is green on its latest run.
-- [ ] You push `~/Documents/onbudget-publish/onbudget`, not `~/Documents/onbudget`: the archive's history carries your user name, home paths, e-mail and the interactive sessions' screen captures. The command at the end of `REPORT.md` shows the copy is clean; run it again after any change to the copy.
+- [ ] You push `~/Documents/onbudget-publish/onbudget`, not `~/Documents/onbudget`: the archive's history carries your user name, home paths, e-mail and the interactive sessions' screen captures. `bash ~/Documents/onbudget-publish/check_copy.sh` shows the copy is clean (`REPORT.md` gives it, under "The publication copy"); run it again after any change to the copy.
 
 ## 10. Three real tasks
 
 Run each on work of your own, in a session started as in Set up or with the plugin installed from the repository.
 
 - [ ] A `5h` task, for example `/onbudget 5h <a task you would have run anyway>`. The answer gives what the 5-hour window had left; the status line moves; the task ends with Claude's STATUS line and the plugin's own line under it.
-- [ ] A `week` task, for example `/onbudget week <a task>`. The answer gives the weekly window's points; the meter reads in points; the end line gives the points each window moved.
-- [ ] A dollar budget that runs out, for example `/onbudget $0.30 <a task larger than that>`. The meter turns CRITICAL at least two requests before the stop; the stop is the plugin's notice; the spend at the stop is at or under the budget, or over it by less than one request.
+- [ ] A `week` task, for example `/onbudget week <a task>`. The answer gives the weekly window's points; the status line and the meter read in points; the end line gives the points the weekly window moved against the points budgeted, the 5-hour window's movement, and the task's own spend in dollars.
+- [ ] A dollar budget that runs out, for example `/onbudget $0.30 <a task larger than that>`. The meter turns CRITICAL before the stop, for at least two requests if none costs more than the dearest before it (otherwise once or not at all: see the README's limitations); the stop is the plugin's notice; the spend at the stop is at or under the budget, or over it by less than one request.
 - [ ] If you want your own capture for the README's first screen, copy the status line, the stop notice and the end-of-task line from these sessions.
 
 ## Clean up

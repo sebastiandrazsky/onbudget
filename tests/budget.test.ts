@@ -39,7 +39,7 @@ describe('/onbudget $X <task>', () => {
     expect(w.prompts.length).toBe(1)
     expect(w.prompts[0].text.startsWith('Implement authentication\n\nYou have a hard usage budget of $3.00 for this task.')).toBe(true)
     expect(w.prompts[0].origin).toEqual({ kind: 'plugin', name: 'onbudget', asUser: true })
-    expect(lastStatus(w)).toBe('spent $0.00 of $3.00 | left before the stop $2.95 (98%) | tier HIGH')
+    expect(lastStatus(w)).toBe('tier HIGH · $2.95 left · budget $3.00')
     expect(rows(w, 'hookfail')).toEqual([])
   })
   test('only the spend after the budget was set counts', async ($, on) => {
@@ -148,7 +148,7 @@ describe('the stop', () => {
     expect(refused.result.toolUses).toEqual([])
     expect(refused.result.answer).toContain('[onbudget] Stopped: $0.90 of $1.00 is used, and the next request could cost up to $0.30, so it was not sent.')
     expect(refused.chunks.map(c => c.kind)).toEqual(['text', 'stop'])
-    expect(lastStatus(w)).toBe('stopped at $0.90 of $1.00: the budget cannot cover another request · /onbudget off to continue')
+    expect(lastStatus(w)).toBe('STOPPED · $0.90 of $1.00 · /onbudget off')
     const sub = await step($, { agentId: 'agent-1' })
     expect(sub.result.answer).toContain('This subagent was stopped')
     expect(w.requests.length).toBe(3)

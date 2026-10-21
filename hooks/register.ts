@@ -16,7 +16,7 @@ import {
   type Budget, type CalMark, type CalRecord, type Effort, type Rate, type Reading, type Spec, type WindowKind,
   BOOTSTRAP_RESERVE_USD, COUNTDOWN_TYPE, DAY_MS, MAX_AGE_DAYS, MIN_OBSERVED_POINTS, NAME, WALL_AT, WINDOWS,
   binding, cappedEffort, dropStaleWalls, effortBeneath, endText, isDefaultCountdown, plural, extendCalibration, failClosedText, fold, isEffortCap, isStale, meterLine, money, observeWalls, observeWindow,
-  parseCommand, poolRate, protocol, refusalText, reminder, reserveOf, resetsText, round4, shown, sizeRest, statusText, stepCostOf, stopCheck, stopLabel,
+  parseCommand, poolRate, protocol, refusalText, reminder, reserveOf, resetsText, round4, shown, sizeRest, statusLine, statusText, stepCostOf, stopCheck,
   stoppedText, trim, windowName,
 } from './core.ts'
 
@@ -87,7 +87,8 @@ async function log($: Engine, kind: string, data: unknown): Promise<void> {
   } catch { /* ignore */ }
 }
 
-const say = ($: Engine, text: string) => { try { $.ui.log(text) } catch { /* a host with no transcript */ } }
+// The engine starts a log line with the plugin's name (mods API, $.ui.log), so the text does not repeat it.
+const say = ($: Engine, text: string) => { try { $.ui.log(text.startsWith(`${NAME}: `) ? text.slice(NAME.length + 2) : text) } catch { /* a host with no transcript */ } }
 
 /** Reads this session's saved state: once per load of the module, and again after the process changes session. */
 const ready = ($: Engine) => (boot ??= load($).catch(err => { boot = null; throw err }))
@@ -179,9 +180,7 @@ async function save($: Engine): Promise<void> {
 function showStatus($: Engine): void {
   try {
     // The engine shows the line under the plugin's name, so the text does not repeat it.
-    if (!budget) $.ui.status(undefined)
-    else if (budget.state === 'stopped') $.ui.status(`stopped at ${money(budget.spent)} of ${shown(budget)}: ${stopLabel(budget.stop)} · /${NAME} off to continue`)
-    else $.ui.status(meterLine(budget, inFlight).replace('[budget] ', ''))
+    $.ui.status(budget ? statusLine(budget, inFlight) : undefined)
   } catch { /* a host with no status line */ }
 }
 

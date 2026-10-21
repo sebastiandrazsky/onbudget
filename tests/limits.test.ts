@@ -256,7 +256,7 @@ describe('when Claude ends the task', () => {
     await run($, '$1 task')
     w.reply = ends('All done.\nSTATUS: COMPLETE')
     await step($)
-    expect(w.logs).toContain('onbudget: Claude ended the task with STATUS: COMPLETE, at $0.10 of $1.00. The budget is still open: a follow-up prompt draws on it, and /onbudget off removes it.')
+    expect(w.logs).toContain('Claude ended the task with STATUS: COMPLETE, at $0.10 of $1.00. The budget is still open: a follow-up prompt draws on it, and /onbudget off removes it.')
     expect((await prompt($, 'one more thing')).context[0]).toContain('The budget set earlier for this task still applies')
   })
   test('not in a headless run, and not for a subagent or an answer without the line', async ($, on) => {

@@ -3,7 +3,7 @@
 
 export const NAME = 'onbudget' // command and plugin name (see README, "Renaming")
 export const VERSION = '0.1.0' // as in .claude-plugin/plugin.json (a test compares them)
-export const TESTED = 'Claude Code 2.1.288 to 2.1.304' // the builds every suite passed on
+export const TESTED = 'Claude Code 2.1.288 to 2.1.306' // the builds every suite passed on
 
 /**
  * Claude Code's own countdown, `<total_tokens>N tokens left</total_tokens>`, which 2.1.304 attaches to requests (type
@@ -390,19 +390,33 @@ export function sizeRest(b: Budget, r: Reading, rate: Rate | null, spentBefore: 
   b.pending = false
 }
 
-/** What the task moved the account's windows by, as far as they were read: "the 5-hour window moved 3 points, the weekly 0". */
-export function movedText(b: Budget): string | null {
+/**
+ * What the task moved the account's windows by, as far as they were read: "the 5-hour window moved 3 points, the weekly
+ * window moved 0 points". `lead` goes first, and `except` is a window it already gives.
+ */
+export function movedText(b: Budget, lead?: string, except?: WindowKind): string | null {
   const parts = WINDOWS.flatMap(kind => {
     const w = b.walls?.[kind]
-    return w && !w.seed ? [`${kind === 'five_hour' ? 'the 5-hour window' : 'the weekly window'} moved ${plural(w.moved ?? 0, 'point')}`] : []
+    return w && !w.seed && kind !== except ? [`${kind === 'five_hour' ? 'the 5-hour window' : 'the weekly window'} moved ${plural(w.moved ?? 0, 'point')}`] : []
   })
+  if (lead) parts.unshift(lead)
   return parts.length ? `${parts.join(', ')} (whole points, whole account)` : null
 }
 
-/** The line the plugin writes when Claude ends the task with its STATUS line. */
+/**
+ * The line the plugin writes (to the person, not the model) when Claude ends the task with its STATUS line. Under a
+ * budget counted in points: the points its window moved against those budgeted, and the task's own spend apart.
+ */
 export function endText(b: Budget, status: string): string {
-  const moved = movedText(b)
-  return `${NAME}: Claude ended the task with STATUS: ${status}, at ${money(b.spent)} of ${shown(b)}${moved ? `; ${moved}` : ''}. The budget is still open: a follow-up prompt draws on it, and /${NAME} off removes it.`
+  const open = `The budget is still open: a follow-up prompt draws on it, and /${NAME} off removes it.`
+  const points = budgetPoints(b)
+  if (points === null) {
+    const moved = movedText(b)
+    return `${NAME}: Claude ended the task with STATUS: ${status}, at ${money(b.spent)} of ${shown(b)}${moved ? `; ${moved}` : ''}. ${open}`
+  }
+  const own = b.window!.kind
+  const moved = movedText(b, `the ${windowName(own)} window moved ${trim(b.window!.moved)} of the ${plural(points, 'point')} budgeted`, own)
+  return `${NAME}: Claude ended the task with STATUS: ${status}: ${moved}; the task's own spend was ${money(b.spent)}. ${open}`
 }
 
 /** Why a stopped budget stopped, in a few words. */
@@ -412,6 +426,78 @@ export function stopLabel(stop: Stop | undefined): string {
   if (stop.event === 'window-full') return 'the usage window is full'
   if (stop.event === 'no-reading') return 'the usage window is not being reported'
   return stop.calibrated ? 'the usage window moved far past the budget' : 'the usage window moved its budgeted share'
+}
+
+// ---------------------------------------------------------------- the status line (shown to the person, never sent)
+
+/**
+ * The longest status line: Claude Code (2.1.304 to 2.1.306) shows 63 characters of a mod's status text after the mod's
+ * name and cuts the rest, so the line is built to fit in 60, its most important fields first.
+ */
+export const STATUS_MAX = 60
+const SHORT: Record<WindowKind, string> = { five_hour: '5h', seven_day: 'week' }
+
+/** Dollars in at most 7 characters: cents below $1,000, whole dollars below a million, then millions. */
+export function cash(usd: number): string {
+  const x = Math.max(0, usd)
+  if (x < 999.995) return `$${x.toFixed(2)}`
+  if (x < 999_999.5) return `$${Math.round(x)}`
+  if (x < 999.5e6) return `$${Math.round(x / 1e6)}M`
+  return '>$999M'
+}
+const pts = (n: number) => `${trim(n)} pt${trim(n) === '1' ? '' : 's'}`
+
+/** The budget in a few characters; `short` leaves out what a percentage or `5h`/`week` budget came to. */
+function budgetLabel(b: Budget, short: boolean): string {
+  if (b.spec.kind === 'usd') return cash(b.spec.usd)
+  const w = SHORT[b.spec.window]
+  const points = budgetPoints(b)
+  if (b.spec.kind === 'pct') return b.usd === null ? `${pts(b.spec.points)} (${w})` : short ? `${trim(b.spec.points)}% ${w}` : `${cash(b.usd)} (${trim(b.spec.points)}% ${w})`
+  if (b.usd !== null) return short ? w : `${cash(b.usd)} (${w})`
+  if (points !== null) return `${pts(points)} (${w})`
+  return short ? w : `${w} (not sized yet)`
+}
+
+/** Why a stopped budget stopped, in a few characters; empty when the spend against the budget says it. */
+function stopShort(b: Budget, stop: Stop | undefined): string {
+  if (!stop || stop.event === 'reserve-stop') return ''
+  if (stop.event === 'wall-stop') return b.spec.kind === 'rest' && b.spec.window === stop.window ? '' : `${SHORT[stop.window]} limit`
+  if (stop.event === 'window-stop') return stop.calibrated && b.window ? `${SHORT[b.window.kind]} moved ${pts(stop.moved)}` : ''
+  return stop.event === 'no-reading' ? 'no reading' : 'window full'
+}
+
+/** The first of the forms that fits in STATUS_MAX, its fields joined; the last one cut to fit when none does. */
+function fit(forms: string[][]): string {
+  const lines = forms.map(f => f.filter(Boolean).join(' · '))
+  const line = lines.find(l => l.length <= STATUS_MAX) ?? lines[lines.length - 1]
+  return line.length <= STATUS_MAX ? line : `${line.slice(0, STATUS_MAX - 1)}…`
+}
+
+/**
+ * The status line under the prompt, for the person: the tier, what is left before the stop and in what unit, the
+ * budget, and which account limit sets the stop when one does rather than the budget. In points under a budget counted
+ * in points. A stopped budget: that it stopped, the spend against the budget, and how to go on. Full detail is in
+ * `/onbudget`. The model never sees this line; it reads `meterLine`.
+ */
+export function statusLine(b: Budget, inFlight = 0): string {
+  const points = budgetPoints(b)
+  const budget = (short: boolean) => `budget ${budgetLabel(b, short)}`
+  if (b.state === 'stopped') {
+    const why = stopShort(b, b.stop)
+    const head = why ? `STOPPED (${why})` : 'STOPPED'
+    const spend = (short: boolean) => `${points !== null ? trim(b.window!.moved) : cash(b.spent)} of ${budgetLabel(b, short)}`
+    const off = `/${NAME} off`
+    return fit([[head, spend(false), off], [head, spend(true), off], ['STOPPED', spend(false), off], ['STOPPED', spend(true), off]])
+  }
+  const m = binding(b, inFlight)
+  if (!m) return fit([['no reading yet', budget(false)], ['no reading yet', budget(true)]])
+  const room = Math.max(0, m.room)
+  const wall = m.by === 'budget' ? undefined : b.walls?.[m.by]
+  // Under a budget counted in points, a limit that converts to dollars is shown in its window's points.
+  const amount = m.unit !== 'usd' ? pts(room) : b.usd === null && wall?.rate ? pts(Math.floor((room / wall.rate) * 10) / 10) : cash(room)
+  const by = m.by !== 'budget' && !(b.spec.kind === 'rest' && b.spec.window === m.by) ? ` (${SHORT[m.by]} limit)` : ''
+  const left = `${amount} left${by}`
+  return fit([[`tier ${m.tier}`, left, budget(false)], [`tier ${m.tier}`, left, budget(true)], [m.tier, left, budget(true)]])
 }
 
 /** Text of the made-up response that stands in for a refused request. */
