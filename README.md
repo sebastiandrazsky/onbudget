@@ -177,6 +177,8 @@ ONBUDGET='5h' claude -p "Build this application"
 
 ## What it reads, writes and changes
 
+[PRIVACY.md](PRIVACY.md) says the same as a privacy statement, with what the event log records.
+
 `claude plugin validate --strict .claude-plugin/plugin.json` lists every engine call the plugin can make:
 
 ```
@@ -197,7 +199,7 @@ The effort cap and the dollars per point are options (see Configuration), not va
 
 ### What it writes
 
-- **Its store.** One JSON file under your Claude config directory, `plugins/store/onbudget_*.json`: the budget of each session that has one, calibration records (dollars spent and points moved per session, window and model, nothing else), the newest reading of each window with its reset time, and, per budgeted session, which countdowns it left out. Records older than 30 days are deleted.
+- **Its store.** One JSON file under your Claude config directory, `plugins/store/onbudget_*.json`: the budget of each session that has one, with the first line of its task (at most 120 characters, shown by `/onbudget`), calibration records (dollars spent and points moved per session, window and model, nothing else), the newest reading of each window with its reset time, and, per budgeted session, which countdowns it left out. Records older than 30 days are deleted.
 - **The event log, off by default.** With `ONBUDGET_LOG=1`, one JSON-lines file in the plugin's own folder, `log/events.jsonl`, continued in `log/events.1.jsonl`, `log/events.2.jsonl`, ... every 200 rows. Each Claude Code process that logs starts it again. The path is fixed in the code: no variable or setting can point it anywhere else. It stays until you delete it.
 - **Display only.** The status line under the prompt, and lines in the transcript that Claude does not read: the line under Claude's STATUS line, the note when another plugin raises the effort, and the answers to `/onbudget`.
 

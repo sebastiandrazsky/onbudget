@@ -1,5 +1,6 @@
 {
   "name": "onbudget",
+  "displayName": "onbudget",
   "version": "0.1.0",
   "description": "Give a Claude Code task a spending limit, in dollars or as a share of your 5-hour or weekly usage; Claude sees what's left as it works, and onbudget stops it before the limit runs out.",
   "author": {
@@ -8,13 +9,16 @@
   },
   "homepage": "https://github.com/sebastiandrazsky/onbudget",
   "repository": "https://github.com/sebastiandrazsky/onbudget",
+  "documentationUrl": "https://github.com/sebastiandrazsky/onbudget#readme",
+  "supportUrl": "https://github.com/sebastiandrazsky/onbudget/issues",
+  "privacyPolicyUrl": "https://github.com/sebastiandrazsky/onbudget/blob/main/PRIVACY.md",
   "license": "MIT",
   "keywords": [
     "budget",
     "usage",
     "cost",
     "rate-limit",
-    "function-hooks"
+    "usage-limits"
   ],
   "userConfig": {
     "effort": {

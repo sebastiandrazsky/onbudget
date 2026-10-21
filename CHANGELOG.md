@@ -2,6 +2,10 @@
 
 Every change users should receive bumps the version (see README, "Development").
 
+## Unreleased
+
+Listing metadata for the plugin directory; no change to the plugin's code. `PRIVACY.md` states what onbudget reads, writes and sends. `.claude-plugin/plugin.json` gains `displayName`, `documentationUrl`, `supportUrl` and `privacyPolicyUrl`, and the keyword `usage-limits` replaces `function-hooks`. The README links to `PRIVACY.md` and now says that the store keeps the first line of each budgeted task. The version stays 0.1.0, and the tag `v0.1.0` stays on `9518ab9`.
+
 ## 0.1.0 (tagged 2026-10-21)
 
 First version.
