@@ -193,7 +193,7 @@ describe('calibration, in every session', () => {
     await start($)
     const status = (await run($, '')).text
     expect(status).toContain('1 point ≈ $0.90 (10 points observed in 1 session)')
-    expect([...w.store.keys()].sort()).toEqual([calKey('recent'), 'unrelated'])
+    expect([...w.store.keys()].sort()).toEqual([calKey('recent'), 'pruned', 'unrelated'])
   })
   test('a change of model starts a record of its own; one model\'s rate is not another\'s', async ($, on) => {
     const w = world(on)
@@ -211,7 +211,21 @@ describe('calibration, in every session', () => {
     const old = NOW - 31 * 86_400_000
     const w = world(on, { store: { 'budget:gone': { v: 1, spec: { kind: 'usd', usd: 1 }, spent: 0, ledger: 0, startedAt: old - 5, savedAt: old }, 'env:gone': { at: old }, 'budget:kept': { v: 1, spec: { kind: 'usd', usd: 1 }, spent: 0, ledger: 0, startedAt: old, savedAt: NOW - 1000 } } })
     await start($)
-    expect([...w.store.keys()]).toEqual(['budget:kept'])
+    expect([...w.store.keys()]).toEqual(['budget:kept', 'pruned'])
+  })
+  test('other sessions\' budgets and flags are gone through at most once a day', async ($, on) => {
+    const old = NOW - 31 * 86_400_000
+    const stale = { 'budget:gone': { v: 1, spec: { kind: 'usd', usd: 1 }, spent: 0, ledger: 0, startedAt: old - 5, savedAt: old }, 'env:gone': { at: old } }
+    const w = world(on, { store: { ...stale, pruned: DAY } })
+    await start($)
+    expect([...w.store.keys()]).toEqual(['budget:gone', 'env:gone', 'pruned']) // already gone through today
+  })
+  test('the first session of a new day goes through them again', async ($, on) => {
+    const old = NOW - 31 * 86_400_000
+    const w = world(on, { store: { 'env:gone': { at: old }, pruned: DAY - 1 } })
+    await start($)
+    expect([...w.store.keys()]).toEqual(['pruned'])
+    expect(w.store.get('pruned')).toBe(DAY)
   })
 })
 

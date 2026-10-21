@@ -8,7 +8,8 @@ would type and reads the plugin's event log, the mock's log and the screen.
 It runs in this repository's folder (already trusted, so no trust dialog) with your real Claude config directory,
 because a fresh one would stop at the first-run screens. It cleans up after itself: the test sessions' transcripts,
 the budgets and calibration records they stored are deleted at the end, and the last readings of the usage windows
-kept in the plugin's store (which the scripted readings overwrite) are put back as they were.
+kept in the plugin's store (which the scripted readings overwrite) and the day the store was last gone through for
+expired records are put back as they were.
 
 usage: python3 tests/e2e/interactive.py            (ONBUDGET_CLAUDE_BIN selects another Claude Code build)
 """
@@ -29,7 +30,7 @@ COLS, ROWS = 80, 50  # the terminal's size: 80 columns, the usual default and th
 # The last readings of the usage windows in the plugin's store, as they were before the scripted sessions wrote theirs.
 SEEN = {}
 for _p in glob.glob(os.path.join(CONFIG, 'plugins', 'store', 'onbudget*.json')):
-    try: SEEN[_p] = {k: v for k, v in json.load(open(_p)).items() if k.startswith('seen:')}
+    try: SEEN[_p] = {k: v for k, v in json.load(open(_p)).items() if k.startswith('seen:') or k == 'pruned'}
     except Exception: pass
 ANSI = re.compile(r'\x1b\[[0-9;?<>=]*[a-zA-Z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][0-9A-B]|\x1b[=>78]')
 
@@ -298,7 +299,7 @@ def cleanup():
             d = json.load(open(path)); before = SEEN.get(path, {})
             gone = [k for k in d if any(k.endswith(f':{sid}') or f':{sid}:' in k for sid in SESSIONS if sid)]
             for k in gone: del d[k]
-            for k in [k for k in d if k.startswith('seen:')]:  # the scripted readings replaced the real ones
+            for k in [k for k in d if k.startswith('seen:') or k == 'pruned']:  # the scripted sessions replaced the real ones
                 if k in before: d[k] = before[k]
                 else: del d[k]
             for k, v in before.items(): d[k] = v

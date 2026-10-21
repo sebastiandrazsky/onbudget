@@ -139,19 +139,30 @@ async function load($: Engine): Promise<void> {
   switched = false
 }
 
-/** Deletes what has expired: calibration records by the day in their key, other sessions' budgets and flags by age. */
+/** The store key holding the day `prune` last went through other sessions' budgets and flags. */
+const PRUNED = 'pruned'
+
+/**
+ * Deletes what has expired: calibration records by the day in their key, at every load; other sessions' budgets and
+ * flags by age, at most once a day. Telling their age takes a read of the store for each, and a read takes longer the
+ * larger the store, so going through them at every session start made every start slower as the store grew.
+ */
 async function prune($: Engine, now: number): Promise<void> {
   try {
-    for (const key of await $.store.keys()) {
-      if (key.startsWith('cal:')) {
-        const day = Number(key.split(':')[2])
-        if (!(calDay - day <= MAX_AGE_DAYS)) await $.store.delete(key)
-      } else if ((key.startsWith('budget:') || key.startsWith('env:') || key.startsWith('hid:')) && !key.endsWith(`:${sid}`)) {
-        const value = await $.store.get(key)
-        const at = isBudget(value) ? (value.savedAt ?? value.startedAt) : isRecord(value) && typeof value.at === 'number' ? value.at : 0
-        if (now - at >= MAX_AGE_DAYS * DAY_MS) await $.store.delete(key)
-      }
+    const keys = await $.store.keys()
+    for (const key of keys) {
+      if (!key.startsWith('cal:')) continue
+      const day = Number(key.split(':')[2])
+      if (!(calDay - day <= MAX_AGE_DAYS)) await $.store.delete(key)
     }
+    if ((await $.store.get(PRUNED)) === calDay) return
+    for (const key of keys) {
+      if (!(key.startsWith('budget:') || key.startsWith('env:') || key.startsWith('hid:')) || key.endsWith(`:${sid}`)) continue
+      const value = await $.store.get(key)
+      const at = isBudget(value) ? (value.savedAt ?? value.startedAt) : isRecord(value) && typeof value.at === 'number' ? value.at : 0
+      if (now - at >= MAX_AGE_DAYS * DAY_MS) await $.store.delete(key)
+    }
+    await $.store.set(PRUNED, calDay)
   } catch { /* housekeeping never stops a session */ }
 }
 

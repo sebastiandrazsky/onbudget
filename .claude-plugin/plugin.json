@@ -1,7 +1,7 @@
 {
   "name": "onbudget",
   "displayName": "onbudget",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Give a Claude Code task a spending limit, in dollars or as a share of your 5-hour or weekly usage; Claude sees what's left as it works, and onbudget stops it before the limit runs out.",
   "author": {
     "name": "Sebastian Drazsky",

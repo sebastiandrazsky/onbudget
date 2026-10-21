@@ -6,14 +6,14 @@
   },
   "metadata": {
     "description": "onbudget: run a Claude Code task under a usage budget",
-    "version": "0.1.1"
+    "version": "0.1.2"
   },
   "plugins": [
     {
       "name": "onbudget",
       "source": "./",
       "description": "Run a task under a usage budget: dollars, or a share of your 5-hour or weekly usage window.",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "author": {
         "name": "Sebastian Drazsky",
         "email": "sebastian@sebastiandrazsky.com"

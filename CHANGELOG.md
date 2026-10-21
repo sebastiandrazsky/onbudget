@@ -2,6 +2,14 @@
 
 Every change users should receive bumps the version (see README, "Development").
 
+## 0.1.2 (2026-10-22)
+
+A session now starts in about 15 to 25 ms however many records the store holds; only the first session start of each day still goes through other sessions' records. No change to anything the model reads or to any budget decision: `tests/e2e/modeltext.py` renders the same 31,396 texts as at `c82a535`.
+
+- Every session start went through the store's budgets and flags of other sessions to delete those older than 30 days, one read each, and a read takes longer the larger the store. With the store a month of normal use leaves (about 780 records, 216 KB) that made each session start take about 130 ms instead of 15; with a heavy month (about 2,600 records, 860 KB), about 0.9 s. Other sessions' budgets and flags are now gone through at the first session start of each day; calibration records, which go by the day in their key at no cost, are still deleted at every start. The store keeps one more value, that day. Now those starts take about 16 ms and 23 ms. Measured on Claude Code 2.1.306 with synthetic stores of those sizes.
+- Setting a budget, and `/onbudget`, still read every calibration record once per session to pool the rates: about 0.3 s at a month of normal use, 2.9 s at a heavy month.
+- The known issue of 0.1.0 remains: in `claude -p`, set the budget with `ONBUDGET`.
+
 ## 0.1.1 (2026-10-21)
 
 A packaging release, with no change to what the plugin does or to anything the model reads: `tests/e2e/modeltext.py` renders the same 31,396 texts as at `c82a535`.
