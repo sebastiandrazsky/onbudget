@@ -159,7 +159,7 @@ ONBUDGET='$3' claude -p "Implement authentication"
 ONBUDGET='5h' claude -p "Build this application"
 ```
 
-`ONBUDGET` applies to the first prompt of the session, once. If the value cannot be used, the prompt is dropped with the reason; the task is not run without its budget. When the budget stops a headless run, the run's result is the plugin's notice, which begins `[onbudget] Stopped:`.
+`ONBUDGET` applies to the first prompt of the session, once. If the value cannot be used, the prompt is dropped with the reason; the task is not run without its budget. When the budget stops a headless run, the run's result is the plugin's notice, which begins `[onbudget] Stopped:`. In `claude -p`, set the budget with `ONBUDGET`: the form `claude -p "/onbudget <budget> <task>"` sets the budget but can exit before the task is sent (exit code 0, nothing run, nothing spent), a known issue in 0.1.0.
 
 ## How it works
 
