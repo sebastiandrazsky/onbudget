@@ -1,7 +1,7 @@
 {
   "name": "onbudget",
   "version": "0.1.0",
-  "description": "Run a task under a usage budget: /onbudget $3 <task>, /onbudget 10% 5h <task>, /onbudget 5% week <task>. Meters the task's own spend, shows it to Claude, and refuses requests the budget cannot cover.",
+  "description": "Give a Claude Code task a spending limit, in dollars or as a share of your 5-hour or weekly usage; Claude sees what's left as it works, and onbudget stops it before the limit runs out.",
   "author": {
     "name": "Sebastian Drazsky",
     "email": "sebastian@sebastiandrazsky.com"
@@ -38,7 +38,7 @@
     "usdPerPointWeek": {
       "type": "number",
       "title": "Dollars per point, weekly window",
-      "description": "Optional. List-price dollars of usage that move your weekly usage window by one percentage point. 0 means learn it from this account's own readings.",
+      "description": "Optional. List-price dollars of usage that move your weekly usage window by one percentage point. 0 means weekly budgets count the window's own points; the rate learned from this account's readings is then used only for the weekly limit under other budgets.",
       "default": 0
     }
   }

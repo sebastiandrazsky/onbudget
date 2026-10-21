@@ -275,7 +275,10 @@ rewritten commits of the same builds.
 ## Files
 
 Read from the lab (`ONBUDGET_LAB`, default `~/Documents/within-lab`), never written: `gate1/tasks/<name>/` with `base/`,
-`hidden/`, `fix_src/`, `venv/`, `oracle.json`, `task.json`, `statement.md`.
+`hidden/`, `fix_src/`, `venv/`, `oracle.json`, `task.json`, `statement.md`. Where they come from: `TASKS.md` names each task's
+upstream repository, pull request, base and fix commits, hidden tests and statement; `upstream.json` has the same for
+scripts; `rebuild_tasks.py` rebuilds the layout from GitHub and PyPI (`python3 eval/rebuild_tasks.py --lab DIR --prove pluggy`,
+then `ONBUDGET_LAB=DIR`). `THIRD_PARTY_NOTICES.md` holds the licences of the upstream projects whose code the runs quote.
 
 Copied from the lab into `eval/`: the scoring and run code (`lib.py`, `harness.py`), `tasks.json` (documented test command and
 changelog rule per task), `shim/`, `mockmodel/`.

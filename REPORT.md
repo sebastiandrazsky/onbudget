@@ -2,7 +2,7 @@
 
 Version 0.1.0, built 2026-10-08 and 09 on Claude Code 2.1.289 (CLI) and 2.1.293 (desktop-bundled), macOS, a Max subscription, Claude Opus 5.5.
 
-This report was written for the first build (git tag `eval-freeze`) and its evaluation on Claude Code 2.1.289. The release candidate (git tag `eval-freeze-3`) and its evaluation on Claude Code 2.1.304 are in the addendum at the end, which supersedes the verdict below where they differ.
+This report was written for the first build (git tag `eval-freeze`) and its evaluation on Claude Code 2.1.289. The release candidate (git tag `eval-freeze-3`) and its evaluation on Claude Code 2.1.304 are in the first addendum, and the release (git tag `v0.1.0`) in the second; each supersedes what comes before it where they differ.
 
 ## Verdict
 
@@ -219,7 +219,7 @@ The first round's 24 runs used Claude Code 2.1.289 and the build tagged `eval-fr
 1. **The meter says where the stop is.** "Left before the stop" is exactly what the stop rule still allows, with the reserve for the next request (and for any request in flight) taken off, so the meter reads 0 when the next request will be refused. The tier also turns CRITICAL when two requests' worth or less is left at the cost of the dearest so far. In round one's `hard-C-1` the model first read CRITICAL at $2.27 of $2.47 and the next request but one was refused; with the same figures the meter now reads CRITICAL from $1.97. A randomised test of 2,000 budgets (each request no dearer than the dearest before it) finds at least two requests sent after the first CRITICAL reading in every one.
 2. **The account's windows bound every budget.** While a budget is open, the 5-hour and weekly windows are limits too. The meter follows whichever comes first and names the window; the plugin stops at 99% (about 97% without a learned rate) with its own notice. A budget larger than what a window has left says so; a window with nothing left refuses the budget in one line, also in a new session, from the last reading kept on the machine.
 3. **`5h` and `week` are budgets**: what the window has left below 99% when the budget is set, in dollars with a learned rate and in the window's points without one. A reset during the task does not enlarge the budget.
-4. **Claude Code's own countdown is left out under a budget.** Claude Code 2.1.304 adds `<total_tokens>N tokens left</total_tokens>` to every request, counting down from a server-set 15 million at each prompt. Round one's transcripts (2.1.289) carry none, so the model behind round one's figures saw one budget signal. Under a budget the native figure is not the task's budget, and the build now leaves it out of new requests while a budget is open. The system prompt's copy stays; nothing already sent changes; after a resume every countdown gets the answer it was first sent with, by its text and the order in which that text appeared. A countdown under a million tokens, or one set with `CLAUDE_CODE_TOTAL_TOKENS_REMINDER`, is kept.
+4. **Claude Code's own countdown is left out under a budget.** Claude Code can send `<total_tokens>N tokens left</total_tokens>` with a request: an undocumented countdown set by the server and padded to 15 million tokens. It is not new in 2.1.304: it has been in builds since at least 2.1.200 and on by default since at least 2.1.235, and 2.1.304 sends it only for models with a certain capability. (Corrected 2026-10-21; this item first said that 2.1.304 added it.) Round one's transcripts (2.1.289) carry none, while every request of round two's onbudget runs (2.1.304) was offered one. Under a budget the native figure is not the task's budget, and the build leaves it out of new requests while a budget is open. This is partial, because the system prompt's copy stays, and its effect on the model was never measured. Nothing already sent changes; after a resume every countdown gets the answer it was first sent with, by its text and the order in which that text appeared. A countdown under a million tokens, or one set with `CLAUDE_CODE_TOTAL_TOKENS_REMINDER`, is kept.
 5. **An effort cap that another plugin overrides is reported.** effortless rewrites each request's effort. onbudget reads, after each request, the effort the engine actually received (`next.trace`), and when it is above the cap logs it per request, says so once naming the plugin, and shows it in `/onbudget`. It does not compete for the order.
 6. **A receipt in points.** The end-of-task line and `/onbudget` give the whole points each window moved while the budget was open, labelled as whole points for the whole account.
 
@@ -239,7 +239,7 @@ Smaller: `/onbudget` states the version and the tested Claude Code range and say
 
 1. *The evaluation described a Claude Code users no longer run.* Round two ran on 2.1.304, pinned by path, with the shipping build. Round one's figures stay below, labelled 2.1.289.
 2. *A mod can remove the countdown.* Built as change 4 and checked at no cost against a fake API on localhost (`tests/e2e/wire.py`): no copy in any budgeted request's messages, the system prompt's copy kept, no copy removed with no budget set, and every request starting with the one before it (the cache prefix) within a process and across four resumed processes with the budget set, kept and removed.
-3. *Hook failure semantics.* Confirmed: no change was needed. The hooks-worker refusal from 2.1.299 is a README limitation.
+3. *Hook failure semantics.* Confirmed: no change was needed. The hooks-worker refusal is a README limitation. (Corrected 2026-10-21: this item first dated it to 2.1.299, which no changelog entry supports; the README now cites the entries of 2.1.292 and 2.1.295 and the mods documentation.)
 4. *The platform converges on the meter, not the stop.* The README now leads with the refusal before sending and with weekly-window budgets.
 5. *Effort defaults per model.* Documented in the README's limitations, including Fable 5.1's default of high and the unverified cache report. No code change.
 6. *Coexistence with effortless.* Checked at effortless commit `df5602e` (2026-10-16), source read, against the fake API in both load orders (`EFFORTLESS_DIR=... python3 tests/e2e/wire.py effortless`): loaded first, onbudget's cap is overridden on the wire (effortless sent `xhigh` from its judge's verdict) and onbudget logs and names it for every such request; loaded second, the cap holds. The countdown rule and the stop held in both orders. The harness redirects only the Anthropic API, so effortless's own update check could still reach GitHub.
@@ -307,7 +307,7 @@ Round two: $14.62 for the seven queued runs (C $5.83, D $4.31, B $4.48) and $0.2
 - Leaving out Claude Code's countdown is not complete after a resume: in the first request of a resumed process a new countdown cannot be told from the ones already sent, so it is kept (one copy). Removing it would mean risking a rewrite of attachments already sent, which the brief rules out.
 - The effort cap is reported, not defended, when another plugin overrides it, as asked.
 - The account name `sebastiandrazsky` stays in the publication copy as the GitHub owner and the public address's domain, which you chose. The copy removes the home path, in both its forms, and the personal address.
-- The learned weekly rate is far below the weekly point's apparent worth ($3.43 pooled against $6.49 raw, from 4 points in 19 sessions; the evaluation's own spend suggests $7 to $20). That is the rate erring low on purpose, with very little movement to learn from, not a defect. A `week` budget in dollars is therefore small on a new install; the README says so and points to `usdPerPointWeek`.
+- The learned weekly rate is far below the weekly point's apparent worth ($3.43 pooled against $6.49 raw, from 4 points in 19 sessions; the evaluation's own spend suggests $7 to $20). (Superseded 2026-10-21: the second addendum's item 1 bounds the weekly point at $8.50 or more and stops converting weekly budgets with the learned rate.) That is the rate erring low on purpose, with very little movement to learn from, not a defect. A `week` budget in dollars is therefore small on a new install; the README says so and points to `usdPerPointWeek`.
 
 ### The publication copy
 
@@ -322,3 +322,141 @@ bash ~/Documents/onbudget-publish/check_copy.sh
 ```
 
 A clean copy prints four zeros and the one identity, `Sebastian Drazsky <sebastian@sebastiandrazsky.com>`.
+
+## Addendum, 2026-10-21: the release
+
+The release commit is tagged `v0.1.0`. Against `eval-freeze-3`, what the model sees is unchanged under a dollar budget and under `5h` and `N% 5h`; it changed under `week` and `N% week` (item 1, authorised in advance; no evaluated run used a weekly budget). No paid run was made: the spend of this session is $0.
+
+### 1. A weekly budget delivers what it names
+
+The bound. The evaluation's own spend sets a floor under what a weekly point is worth on this account. In round one, $59.49 of evaluation spend (24 runs) moved the weekly reading from 9% to 15%: 6 whole points, so fewer than 7 true points, so a point is worth at least $8.50. Round two's $14.62 moved it from 9% to 11%, which gives a weaker floor of $4.87. Neither round gives a ceiling: that needs a span in which nothing else used the account, and other sessions (this engineering session among them) ran during both queues. The rate onbudget had learned stood at $3.24 to $3.49 ($3.43 pooled from 4 points in 19 sessions, against $6.49 raw). So `week` and `N% week` converted at that rate gave at most about two fifths of the share they named.
+
+The change. A weekly budget (`week`, `N% week`) no longer converts with the learned weekly rate. Without `usdPerPointWeek` it is counted in the weekly window's own whole points, by the machinery that already counted a 5-hour budget before a rate was known:
+- `N% week` stops when the window has moved N points, good to about a point, with a 3% minimum.
+- `week` is what the window has left below 99%, and it stops about two points before that (at 97%), because each request is reckoned at up to a point the reading may not show yet.
+- With `usdPerPointWeek` set, both are dollars at that rate, as before.
+
+What is said when the budget is set says all of this. `/onbudget` labels the learned weekly rate as used only for the weekly limit under other budgets. The code change is `budgetRates` in `hooks/register.ts`, plus three messages. Tests: `tests/weekly.test.ts` (7 tests: points with a learned rate for both forms, dollars with the setting, the 3% minimum, a budget sized from the first reading, the dollar budget's weekly limit left as it was, and the status line), and one expectation in `tests/limits.test.ts` updated to the new message.
+
+Left as it was, and proposed for 0.1.1. The weekly limit under a dollar or 5-hour budget still converts with the learned weekly rate. Near the weekly limit those budgets therefore stop early: at 95% with the learned $3.43, the wall reads $13.72 for 4 points worth at least $34. Counting that wall in points would change what the model sees under the budget kinds the evaluation measured, which this brief reserves, so I did not build it. The proposal is the same rule as for weekly budgets: the weekly wall in points unless `usdPerPointWeek` is set.
+
+Not measured. Under a budget counted in points the meter turns CRITICAL with two points left, which is a large share of a small weekly budget. How the model works under that has not been run.
+
+### 2. Every public statement is true as of today
+
+- **The countdown.** "2.1.304 adds a countdown" is gone from the README, the CHANGELOG and this report (the first addendum's item 4 carries a dated correction). The countdown is undocumented and set by the server, padded to 15 million tokens, in builds since at least 2.1.200, on by default since at least 2.1.235, and gated on a model capability in 2.1.304.
+- **Weekly budgets as onbudget's addition.** The README's claim is replaced by the list of plugins that already budget the weekly window. What only onbudget does, as far as both Anthropic marketplaces and a GitHub search show, is to refuse the individual model request from inside Claude Code and to publish an evaluation with its raw data.
+- **"A hard budget".** The README's first line is now the one-sentence description. The guarantees define the stop and its two documented ways past: one request dearer than any before it, and Claude Code's own requests that do not pass through the hook (the next-prompt suggestion and a compaction). The protocol the model reads still says "hard usage budget"; that text is part of what the model sees under every budget, so it stays as evaluated.
+- **"One budget signal".** Removed from the CHANGELOG: the system prompt keeps its copy of the countdown.
+- **The hooks worker.** The README now says what the engine does and cites it. While the worker restarts, Claude Code refuses calls a mod's guard hook would have seen (changelog 2.1.292 and 2.1.295). A mod traced as crashing the worker is unloaded, and after three untraced crashes every installed mod is unloaded until `/reload-plugins` or a new session (mods documentation, "Troubleshoot mods"). The old "since 2.1.299" had no changelog entry behind it; the second review's item 3 above carries a dated correction. The not-running section also says that, from 2.1.304, the transcript names a plugin that skips one of onbudget's hooks.
+- **Native features.** The README gives one clause for each: `--max-budget-usd`, the countdown, the 85% warning, auto-continue at a reset, the Wrap-Up Allowance, the flag-gated near-limit note, `--task-budget` and `taskBudget`. It ends with what none of them does: a per-task budget in an interactive session, or anything at the weekly limit.
+- **Licence notices.** `eval/THIRD_PARTY_NOTICES.md` gives the licence texts of the upstream projects whose code appears in `eval/`. There are eight, not seven: boltons, falcon, markdown-it-py, pluggy, pydantic-settings and werkzeug (the seven-task session; werkzeug twice), and packaging and tenacity (round one's single-task runs, whose diffs are in `eval/runs/`).
+- **It lands early.** Stated in the guarantees and the limitations, with the figure: 19 to 25% of the budget unspent in round two's onbudget runs, all of which ended at LOW.
+- **Manifests.** The plugin's description is the one sentence, and the `usdPerPointWeek` option says what `0` now means.
+- **What only Sebastian verified.** The facts about native features and third-party plugins are as given in the brief (verified 2026-10-20 and 21). I did not re-verify them.
+
+### 3. The README can be understood in a minute
+
+The first screen is 40 lines. It holds the sentence, three command lines, the three lines a user sees (status line, stop notice, end-of-task line), the two-line install, what onbudget reads, writes and sends, and when you don't need it.
+
+The three lines are a real capture from the smoke session on 2.1.304 (`eval/runs/interactive-real-7`). The terminal capture lost its spaces; I put them back against the plugin's own strings and changed nothing else. The status line stays cut at the terminal's width as it was. That capture's `screen.txt` is not in the publication copy, so the README names the session.
+
+The results are a short table of round two with version and n, and four lines. Round one's long table moved here, below. The first screen is also in `drafts/readme-first-screen.md` (not tracked), for Sebastian to rewrite in his own voice.
+
+### 4. The benchmark's tasks can be identified
+
+Must, done. `eval/TASKS.md` covers the nine tasks: the seven of the session and round one's two single tasks. For each it gives:
+- the upstream repository and licence, and the pull request;
+- the base and fix commits, as full linked SHAs;
+- the hidden test files and every hidden test id;
+- the scoring command and any excluded tests;
+- the statement the model was given.
+
+`eval/upstream.json` carries the same for scripts, with the lab environments' pinned requirements and each statement's SHA-256.
+
+Should, done. `eval/rebuild_tasks.py` uses only the standard library. It rebuilds the lab layout that `eval/` expects (`gate1/tasks/<name>/`) from GitHub and PyPI: `python3 eval/rebuild_tasks.py --lab DIR --prove pluggy`.
+
+The proof on pluggy, which I ran again myself, took 15 seconds:
+- the base, hidden and fix trees are byte-identical to the lab's (94, 1 and 95 files, leaving `.git`, `venv` and caches aside);
+- the 4 hidden tests fail at base and pass at the fix;
+- 197 tests pass at both, as in the lab.
+
+The agent that wrote the script proved boltons, falcon, markdown-it-py, pydantic-settings, tenacity, werkzeug and werkzeug-cond the same way. packaging (62,000 tests) was not run.
+
+It also found two things:
+- **werkzeug.** The lab's oracle lists 129 fail-to-pass ids, but 2 of them (`test_send_file::test_path` and `test_from_directory`) also pass at base. Their ids embed the scratch path, which is spelled one way at base and another at the fix. Scoring is unaffected: `lib.canon` merges the two spellings, and both tests pass at the fix. `upstream.json` lists them separately as `f2p_spelling_artifacts`.
+- **falcon.** It has a flaky test (`test_ws_enter_context_timeout`), so the run statistics in a rebuilt `oracle.json` can differ from the lab's. The pass-to-pass count matched (4,148).
+
+### 5. Repository and release hygiene
+
+- **The workflow.** `permissions: contents: read`. `actions/checkout` is pinned to `3d3c42e5aac5ba805825da76410c181273ba90b1` (v7.0.1) with `persist-credentials: false`, and `actions/setup-python` to `5fda3b95a4ea91299a34e894583c3862153e4b97` (v7.0.0). Both are the latest releases, resolved to commits with `gh api`. The push of the release is the first run on them.
+- **`SECURITY.md`.** It asks for private reports, through GitHub's private vulnerability reporting (which needs the repository to be public) or by e-mail to the public address. It also says what counts as a vulnerability.
+- **The version rule.** In the README's Development section and at the top of the CHANGELOG: every change users should receive bumps the version in `plugin.json`, both places in `marketplace.json` and `VERSION` in `hooks/core.ts`. Claude Code's plugin documentation ("Publish") says an installed plugin is updated only when its version changes.
+- **The pinned install.** `claude plugin marketplace add sebastiandrazsky/onbudget#v0.1.0`, the form the install documentation gives ("Add `#ref` to pin a branch or tag").
+- **The tag.** `v0.1.0` is an annotated tag on the release commit.
+- **Read-only listing with `gh` (2026-10-21).**
+  - The repository has `main` only, no releases, no deploy keys, no webhooks, no Actions secrets, and one collaborator.
+  - The default workflow token is read-only.
+  - Branch protection and rulesets answer "Upgrade to GitHub Pro or make this repository public". Private vulnerability reporting answers 404 while the repository is private, and `security_and_analysis` is empty.
+- **Prepared, not run.** The commands are in `drafts/github-settings.md`:
+  - private vulnerability reporting (public only);
+  - secret scanning and push protection (free when public; paid Secret Protection when private);
+  - protection of `main` with no force-push (public, or GitHub Pro);
+  - requiring SHA-pinned actions (works now);
+  - the release itself.
+
+### 6. The plugin stays at the repository root
+
+`claude plugin validate` and the install by name work from the root. The README now says once that installing copies `eval/` and `tests/` and that the plugin never loads them.
+
+### 7. The native countdown
+
+The code is unchanged. It is no longer on the first screen or in the guarantees. "How it works" describes it as partial (the system prompt keeps its copy) and says its effect on the model was never measured.
+
+### Round one's table, moved from the README
+
+On Claude Code 2.1.289, with the build tagged `eval-freeze`:
+
+| | Budget | n | Tasks complete, of 7 | Within budget | Ended by itself, with a report | Wrong completion claims | Cost, each run |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| onbudget | $4.20 | 3 | 7, 7, 6 | 3 of 3 | 3 of 3 | 1 of 21 | $3.07, $3.57, $3.67 |
+| Budget sentence in the prompt | $4.20 | 2 | 5, 6 | 2 of 2 | 2 of 2 | 0 of 14 | $1.92, $2.69 |
+| Plain, simple cap | $4.20 | 2 | 5, 6 | 0 of 2 | 0 of 2 | none made | $4.25, $4.25 |
+| Plain, onbudget's stop rule as a silent cap | $4.20 | 2 | 5, 3 | 2 of 2 | 0 of 2 | none made | $3.35, $3.25 |
+| onbudget | $2.47 | 3 | 6, 5, 6 | 3 of 3 | 2 of 3 | 0 of 14 | $2.32, $1.84, $2.16 |
+| Budget sentence in the prompt | $2.47 | 3 | 5, 5, 5 | 3 of 3, one only because the safety cap refused its next request at $2.33 | 2 of 3 | 0 of 14 | $2.33, $2.05, $2.08 |
+| Plain, simple cap | $2.47 | 2 | 0, 1 | 0 of 2 | 0 of 2 | none made | $3.14, $3.57 |
+| Plain, onbudget's stop rule as a silent cap | $2.47 | 2 | 0, 1 | 2 of 2 | 0 of 2 | none made | $2.01, $1.78 |
+
+Per finished task at $4.20, onbudget cost $0.52 and the sentence $0.42, but onbudget finished the two dearest tasks, which the sentence arm mostly left. By task count, six tasks cost onbudget $3.67 and the sentence $2.69, and only onbudget reached seven ($3.07, $3.57). In one onbudget run at $2.47 the plugin refused the next request at $2.32 before the model had reported. The model had first read CRITICAL one request earlier, which is why the meter now turns CRITICAL two requests before the stop.
+
+### Verification
+
+All of these spend nothing.
+
+| Check | Claude Code | Result |
+| --- | --- | --- |
+| `claude plugin validate --strict`, both manifests | 2.1.288, 2.1.304 | pass |
+| `claude plugin test .` | 2.1.288, 2.1.304 | 143 of 143 (the 136 before, plus 7 for item 1) |
+| `tests/e2e/run.py`, scripted model | 2.1.288, 2.1.304 | 57 of 57 |
+| `tests/e2e/wire.py`, fake API, with effortless | 2.1.288, 2.1.304 | 18 of 18 |
+| `tests/e2e/interactive.py`, pseudo-terminal | 2.1.288, 2.1.304 | 21 of 21 |
+| Directory file rules, by script over the copy's tracked files | | under 512 files, none of 256 KiB or more, all UTF-8 text, no system files, no symlinks or LFS, names valid on Windows |
+| Task rebuild, `eval/rebuild_tasks.py --prove pluggy` | | PASS, trees byte-identical to the lab's |
+
+2.1.304 is the newest build on this machine. The builds after it are covered by CI, which installs the current release on every push.
+
+### Where I disagree, or did something other than asked
+
+- The upstream projects are eight, not seven (item 2).
+- I used a real capture with its spaces put back instead of leaving a slot (item 3). If Sebastian prefers his own, section 10 of `CHECKLIST.md` says where to take it.
+- The weekly limit under dollar and 5-hour budgets still uses the learned weekly rate. That is a proposal for 0.1.1, not built (item 1).
+- `week` counted in points stops about two points short of what it names, at 97%. This is the existing rule for any window counted in points, and it is said when the budget is set. Making it smaller means reckoning a request at less than a point, which needs a rate.
+
+### What I could not verify
+
+- **Claude Code 2.1.305 and 2.1.306.** They are not on this machine. The suites ran on 2.1.288 and 2.1.304. The release push runs CI on the current release, Linux only, without the terminal suite.
+- **The model's behaviour under a weekly budget counted in points.** That would need a paid run.
+- **The directory portal's Validate, and whether the name is free.** Only the portal can say.
+- **The facts about native features and other plugins.** These were given in the brief; I did not re-check them.
+- **The countdown's effect on the model.**

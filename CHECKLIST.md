@@ -1,6 +1,6 @@
 # Checklist before publishing
 
-A pass through onbudget in a real terminal session with a real model. It takes about twenty minutes and costs about $1 of usage. Tick each line as you go; anything that does not match is a reason not to publish yet.
+A pass through onbudget in a real terminal session with a real model. It takes about twenty minutes and costs about $1 of usage, plus what the three real tasks of section 10 spend. Tick each line as you go; anything that does not match is a reason not to publish yet.
 
 The automated suites already drive these same paths against a scripted model (`python3 tests/e2e/interactive.py`), and `eval/interactive_smoke.py` drove steps 1, 2 and 4 with the real model. This checklist is the part no script can do: your own eyes on the screen, and the steps no script covered with a real model (5, 6, and most of 7 and 8).
 
@@ -57,7 +57,7 @@ Accept the folder-trust question for the scratch folder. During the steps below 
 - [ ] While it runs, `/onbudget` lists `account limit, 5-hour window: at N% …` and `account limit, weekly window: …`, each with where onbudget stops for it.
 - [ ] `/onbudget off`.
 - [ ] `/onbudget $500 Reply with the word ok.` (unless you really have $500 of 5-hour window left). The answer says the account's 5-hour window has less left than the budget, about how much, and that the task runs against that. The status line names the 5-hour limit. `/onbudget off` once Claude has answered.
-- [ ] `/onbudget week Reply with the word ok.` The answer gives the weekly figure in dollars or in points. `/onbudget off`.
+- [ ] `/onbudget week Reply with the word ok.` Unless you set `usdPerPointWeek`, the answer gives the weekly figure in points, says a weekly budget counts the window's own points, and says it stops about two points before 99%. `/onbudget off`.
 - [ ] If a window happens to be at 97% or more: `/onbudget $1 anything` is refused in one line, and nothing is sent.
 
 ## 7. Interrupt, compact, resume, clear
@@ -93,6 +93,15 @@ claude -p --safe-mode --plugin-dir ~/Documents/onbudget "/onbudget"
 - [ ] In a clean config directory, `claude plugin marketplace add sebastiandrazsky/onbudget` then `claude plugin install onbudget@onbudget` installs it, and `/onbudget` answers (needs read access to the repository while it is private).
 - [ ] The repository's GitHub workflow is green on its latest run.
 - [ ] You push `~/Documents/onbudget-publish/onbudget`, not `~/Documents/onbudget`: the archive's history carries your user name, home paths, e-mail and the interactive sessions' screen captures. The command at the end of `REPORT.md` shows the copy is clean; run it again after any change to the copy.
+
+## 10. Three real tasks
+
+Run each on work of your own, in a session started as in Set up or with the plugin installed from the repository.
+
+- [ ] A `5h` task, for example `/onbudget 5h <a task you would have run anyway>`. The answer gives what the 5-hour window had left; the status line moves; the task ends with Claude's STATUS line and the plugin's own line under it.
+- [ ] A `week` task, for example `/onbudget week <a task>`. The answer gives the weekly window's points; the meter reads in points; the end line gives the points each window moved.
+- [ ] A dollar budget that runs out, for example `/onbudget $0.30 <a task larger than that>`. The meter turns CRITICAL at least two requests before the stop; the stop is the plugin's notice; the spend at the stop is at or under the budget, or over it by less than one request.
+- [ ] If you want your own capture for the README's first screen, copy the status line, the stop notice and the end-of-task line from these sessions.
 
 ## Clean up
 

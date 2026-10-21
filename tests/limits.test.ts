@@ -198,7 +198,7 @@ describe('/onbudget 5h and /onbudget week', () => {
     await start($)
     const out = await run($, 'week task')
     expect(out.text).toContain('budget 69 points of the weekly usage window (what it had left) set')
-    expect(out.text).toContain('no conversion to dollars is known yet')
+    expect(out.text).toContain("A weekly budget is counted in the weekly window's own points unless usdPerPointWeek is set")
     w.reply = () => { w.readings = [week(31)]; return { cost: 0.1 } }
     await step($)
     expect((await tool($)).context[0]).toBe('[budget] the weekly usage window has moved 1 of 69 points | left before the stop 66 points of the weekly window (99%) | tier HIGH')

@@ -541,7 +541,7 @@ export function statusText(b: Budget | null, rates: Partial<Record<WindowKind, R
   for (const kind of WINDOWS) {
     const r = rates[kind]
     if (r === undefined) continue
-    lines.push(`  calibration, ${windowName(kind)} window: ${r ? `1 point ≈ ${money(r.usdPerPoint)} (${r.source === 'config' ? 'from your settings' : `${plural(r.points, 'point')} observed in ${plural(r.intervals, 'session')}`})` : `not enough data yet (needs ${MIN_CAL_POINTS} points of movement observed)`}`)
+    lines.push(`  calibration, ${windowName(kind)} window: ${r ? `1 point ≈ ${money(r.usdPerPoint)} (${r.source === 'config' ? 'from your settings' : `${plural(r.points, 'point')} observed in ${plural(r.intervals, 'session')}${kind === 'seven_day' ? '; used only for the weekly limit under other budgets, since weekly budgets count points unless usdPerPointWeek is set' : ''}`})` : `not enough data yet (needs ${MIN_CAL_POINTS} points of movement observed)`}`)
   }
   return lines.join('\n')
 }

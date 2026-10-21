@@ -13,7 +13,7 @@
 // its event through unchanged; the only work left is the calibration record kept at session.measure.
 import type { EngineInterface, PromptOrigin, Register, SessionUsage, TurnStepInput, TurnStepResult } from 'claude-code'
 import {
-  type Budget, type CalMark, type CalRecord, type Effort, type Rate, type Reading, type WindowKind,
+  type Budget, type CalMark, type CalRecord, type Effort, type Rate, type Reading, type Spec, type WindowKind,
   BOOTSTRAP_RESERVE_USD, COUNTDOWN_TYPE, DAY_MS, MAX_AGE_DAYS, MIN_OBSERVED_POINTS, NAME, WALL_AT, WINDOWS,
   binding, cappedEffort, dropStaleWalls, effortBeneath, endText, isDefaultCountdown, plural, extendCalibration, failClosedText, fold, isEffortCap, isStale, meterLine, money, observeWalls, observeWindow,
   parseCommand, poolRate, protocol, refusalText, reminder, reserveOf, resetsText, round4, shown, sizeRest, statusText, stepCostOf, stopCheck, stopLabel,
@@ -246,6 +246,17 @@ async function wallRates($: Engine): Promise<Record<WindowKind, Rate | null>> {
   return { five_hour: await rateFor($, 'five_hour'), seven_day: await rateFor($, 'seven_day') }
 }
 
+/**
+ * The rates a budget converts with and its walls use. A weekly budget (`week`, `N% week`) takes a weekly rate only from
+ * the user's setting: the learned one errs far low for that window (README, "Window readings"), which would stop the
+ * task well short of the share it names, so without a setting the budget counts the window's own points.
+ */
+async function budgetRates($: Engine, spec: Spec): Promise<Record<WindowKind, Rate | null>> {
+  const rates = await wallRates($)
+  if (spec.kind !== 'usd' && spec.window === 'seven_day' && rates.seven_day?.source !== 'config') rates.seven_day = null
+  return rates
+}
+
 /** Keeps the newest reading of each window in the store when it changes, for a budget set before a session has one. */
 async function noteSeen($: Engine, readings: readonly Reading[]): Promise<void> {
   for (const kind of WINDOWS) {
@@ -312,8 +323,9 @@ async function command($: Engine, args: string): Promise<{ say: string; prompt?:
   let pending = false
   let restAt: Reading | undefined // `5h`/`week` counted in points: the reading it was sized from, its baseline
   const notes: string[] = []
+  const weeklyPoints = 'A weekly budget is counted in the weekly window\'s own points unless usdPerPointWeek is set (the rate learned for that window errs far low), so the budget'
   const startedAt = await $.clock.now()
-  const rates = await wallRates($)
+  const rates = await budgetRates($, c.spec)
   const { live, known } = await startReadings($, await $.session.usage(), startedAt)
   const spec = c.spec
   if (spec.kind === 'usd') usd = spec.usd
@@ -323,10 +335,12 @@ async function command($: Engine, args: string): Promise<{ say: string; prompt?:
     if (rate) {
       usd = round4(spec.points * rate.usdPerPoint)
       notes.push(`Converted at 1 point ≈ ${money(rate.usdPerPoint)} (${rate.source === 'config' ? 'your setting' : `learned from ${Math.round(rate.points)} points of movement seen on this machine; it errs low, so the budget errs small`}).`)
+    } else if (spec.points < MIN_OBSERVED_POINTS && kind === 'seven_day') {
+      return { say: `${NAME}: cannot enforce ${c.raw}. Weekly budgets are counted in the weekly window's own whole points unless usdPerPointWeek is set, so the smallest is ${MIN_OBSERVED_POINTS}%; a dollar budget works now.` }
     } else if (spec.points < MIN_OBSERVED_POINTS) {
       return { say: `${NAME}: cannot enforce ${c.raw} yet. The ${windowName(kind)} window is reported in whole points for the whole account, and ${NAME} has not yet seen enough usage to convert a point into dollars. Until it has, the smallest percentage budget is ${MIN_OBSERVED_POINTS}%; a dollar budget works now.` }
     } else {
-      notes.push(`No conversion to dollars is known yet, so the budget is enforced on the window's own reading: whole points, account-wide. It stops when the window has moved ${spec.points} points, whoever used them, and can be off by a point or by one request.`)
+      notes.push(`${kind === 'seven_day' ? weeklyPoints : 'No conversion to dollars is known yet, so the budget'} is enforced on the window's own reading: whole points, account-wide. It stops when the window has moved ${spec.points} points, whoever used them, and can be off by a point or by one request.`)
     }
   } else {
     // `5h` or `week`: what the window has left below the wall, read now when the session has a current reading.
@@ -345,7 +359,9 @@ async function command($: Engine, args: string): Promise<{ say: string; prompt?:
       } else {
         allowance = points
         restAt = r
-        notes.push(`The window is at ${trim(r.percentUsed)}% and no conversion to dollars is known yet, so the budget is the window's own reading: it stops when the window has moved ${trim(points)} points, whoever used them, or a little before.`)
+        notes.push(kind === 'seven_day'
+          ? `The window is at ${trim(r.percentUsed)}%. ${weeklyPoints} is the window's own reading: ${trim(points)} points are left below ${WALL_AT}%, and it stops about two points before that, at ${WALL_AT - 2}%, because the reading may not yet show the last requests.`
+          : `The window is at ${trim(r.percentUsed)}% and no conversion to dollars is known yet, so the budget is the window's own reading: it stops when the window has moved ${trim(points)} points, whoever used them, or a little before.`)
       }
     }
   }
@@ -544,7 +560,7 @@ export const register: Register = (on, options) => {
     try {
       const model = await calModel($).catch(() => '')
       const now = await $.clock.now()
-      const rates = await wallRates($)
+      const rates = await budgetRates($, b.spec)
       // A converted budget's own window keeps the rate it was converted with when none is learned now.
       if (b.rate && b.spec.kind !== 'usd' && !rates[b.spec.window]) rates[b.spec.window] = b.rate
       const sizing = b.pending === true
