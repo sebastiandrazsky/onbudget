@@ -16,6 +16,7 @@ import codecs, fcntl, glob, json, os, pty, re, select, shutil, struct, subproces
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from screen import Screen  # noqa: E402
+import eventlog  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
@@ -49,7 +50,9 @@ class Session:
         env = {k: v for k, v in os.environ.items() if not (k.startswith('CLAUDE') or k.startswith('ANTHROPIC_'))}
         env.update(ANTHROPIC_BASE_URL='http://127.0.0.1:9', CLAUDE_CODE_MAX_RETRIES='0', DISABLE_TELEMETRY='1',
                    DISABLE_AUTOUPDATER='1', TERM='xterm-256color', COLUMNS=str(COLS), LINES=str(ROWS),
-                   MOCK_SCRIPT=script_path, MOCK_LOG=self.mock_path, ONBUDGET_LOG=self.log_path, **extra)
+                   MOCK_SCRIPT=script_path, MOCK_LOG=self.mock_path, ONBUDGET_LOG='1', **extra)
+        self.closed = False
+        eventlog.clear(REPO)   # the plugin's log is one fixed file in its folder: read there while this session runs, kept when it closes
         cmd = [CLAUDE, '--plugin-dir', REPO, '--plugin-dir', MOCK, '--permission-mode', 'acceptEdits', '--setting-sources', 'project,local',
                '--strict-mcp-config', '--allowedTools', 'Bash(echo:*)', '--model', 'sonnet', '--effort', 'high', *args]
         self.pid, self.fd = pty.fork()
@@ -116,11 +119,11 @@ class Session:
         os.write(self.fd, raw); self.pump(0.5)
 
     def rows(self, kind):
-        rows, i = [], 0
-        while True:
-            path = self.log_path if i == 0 else f'{self.log_path}.{i}'
-            if not os.path.exists(path): break
-            rows += [json.loads(l) for l in open(path) if l.strip()]; i += 1
+        lines = (open(self.log_path).readlines() if os.path.exists(self.log_path) else []) if self.closed else eventlog.lines(REPO)
+        rows = []
+        for l in lines:
+            try: rows.append(json.loads(l))
+            except ValueError: pass   # a chunk being rewritten
         return [r['data'] for r in rows if r['kind'] == kind]
 
     def mock(self, kind):
@@ -135,6 +138,7 @@ class Session:
         except Exception: pass
         try: os.waitpid(self.pid, 0)
         except Exception: pass
+        eventlog.keep(REPO, self.log_path); self.closed = True
 
 
 def main_session():

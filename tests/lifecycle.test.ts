@@ -1,6 +1,6 @@
 // Headless entry points, percentage budgets, calibration, and what survives a compaction, a reload, a resume, a /clear.
 import { describe, test, expect } from 'claude-code/testing'
-import { world, step, start, run, prompt, tool, measure, compact, rows, LOG } from './world.ts'
+import { world, step, start, run, prompt, tool, measure, compact, rows, logChunks, LOG } from './world.ts'
 
 const near = (got: number, want: number) => expect(Math.abs(got - want) < 1e-9 ? 'near' : `${got} is not ${want}`).toBe('near')
 const NOW = 1_700_000_000_000
@@ -398,22 +398,41 @@ describe('ONBUDGET, once', () => {
 })
 
 describe('the event log', () => {
-  test('is written only when ONBUDGET_LOG names a file', async ($, on) => {
+  test('is off unless ONBUDGET_LOG is 1', async ($, on) => {
     const w = world(on)
     await start($)
     await run($, '$2 task')
     await step($)
     expect(w.files.size).toBe(0)
   })
-  test('rows are JSON, one per event, in chunks of 200', async ($, on) => {
+  test('a path in ONBUDGET_LOG is never written: the log has one fixed place, and a path does not turn it on', async ($, on) => {
+    const w = world(on, { env: { ONBUDGET_LOG: '/home/user/.zshrc' } })
+    await start($)
+    await run($, '$2 task')
+    await step($)
+    expect(w.files.size).toBe(0)
+  })
+  test('rows are JSON, one per event, in chunks of 200, in log/events.jsonl of the plugin\'s own folder', async ($, on) => {
     const w = world(on, { env: LOG })
     await start($)
     await run($, '$500 task')
     w.reply = () => ({ cost: 0.01 })
     for (let i = 0; i < 205; i++) await step($)
-    expect([...w.files.keys()].sort()).toEqual(['/log', '/log.1'])
-    expect(w.files.get('/log')!.trim().split('\n').length).toBe(200)
+    const paths = logChunks(w).map(([p]) => p)
+    expect(paths.length).toBe(2)
+    expect(paths[0].endsWith('/log/events.jsonl') && paths[1] === paths[0].replace('events.jsonl', 'events.1.jsonl') && paths[0].startsWith('/')).toBe(true)
+    expect([...w.files.keys()].every(p => paths.includes(p))).toBe(true)
+    expect(logChunks(w)[0][1].trim().split('\n').length).toBe(200)
     expect(rows(w, 'step').length).toBe(205)
     expect(rows(w, 'session.start')[0]).toEqual({ sid: 'session-1', budget: null, restored: false, effortCap: 'medium', history: false, version: { version: 'test' } })
+  })
+  test('the chunks an earlier, longer process left are emptied, so the log is this process\'s alone', async ($, on) => {
+    const w = world(on, { env: LOG })
+    w.exists = p => /\/log\/events\.[12]\.jsonl$/.test(p) // an earlier run left log/events.1.jsonl and log/events.2.jsonl
+    await start($)
+    const chunks = logChunks(w)
+    expect(chunks.map(([p]) => p.replace(/^.*\/log\//, 'log/'))).toEqual(['log/events.jsonl', 'log/events.1.jsonl', 'log/events.2.jsonl'])
+    expect(chunks.slice(1).every(([, text]) => text === '')).toBe(true)
+    expect(rows(w, 'session.start').length).toBe(1)
   })
 })

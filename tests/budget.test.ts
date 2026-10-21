@@ -66,12 +66,19 @@ describe('/onbudget $X <task>', () => {
     await step($, { effort: 'xhigh' })
     expect(w.requests[0].effort).toBe('xhigh')
   })
-  test('ONBUDGET_EFFORT overrides the option', async ($, on) => {
-    const w = world(on, { env: { ONBUDGET_EFFORT: 'low' } })
+  test('the effort option low caps at low; ONBUDGET_EFFORT, removed in 0.1.0, changes nothing', { options: { effort: 'low' } }, async ($, on) => {
+    const w = world(on, { env: { ONBUDGET_EFFORT: 'keep' } })
     await start($)
     await run($, '$2 task')
     await step($, { effort: 'high' })
     expect(w.requests[0].effort).toBe('low')
+  })
+  test('with no option and ONBUDGET_EFFORT set, the default cap is medium', async ($, on) => {
+    const w = world(on, { env: { ONBUDGET_EFFORT: 'keep' } })
+    await start($)
+    await run($, '$2 task')
+    await step($, { effort: 'xhigh' })
+    expect(w.requests[0].effort).toBe('medium')
   })
   test('the meter line follows every tool result, the main thread and subagents alike, and keeps other context', async ($, on) => {
     const w = world(on)

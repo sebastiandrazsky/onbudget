@@ -5,7 +5,7 @@
 Arms differ only in the prompt's budget paragraph and in the plugin that is loaded; model, effort, tools, prompt body, scoring and
 the external watchdog are the same. Launch flags mirror the lab's vharness.claude_cmd (no --max-budget-usd), with --effort medium.
 Arm D, added in the second round, is the one exception: plain Claude Code under its own --max-budget-usd."""
-import os, re, shutil, signal, subprocess, sys, time
+import glob, os, re, shutil, signal, subprocess, sys, time
 import lib
 from lib import EVAL, ROOT, TASKS, EVAL_TASKS, jload, jdump
 
@@ -93,7 +93,7 @@ def claude_cmd(plugin_dirs, max_budget=None):
 def run_env(run_dir, spec, ws, extra=None):
     """(full environment, the variables the harness sets). The second is what env.json records."""
     ours = dict(CLAUDE_CODE_ENABLE_FUNCTION_HOOKS='1', DISABLE_AUTOUPDATER='1', WITHIN_WS=os.path.realpath(ws), WITHIN_TASKS=TASKS, ONBUDGET_SHIM_LOG=f'{run_dir}/shim.log')
-    if spec['arm'] == 'C': ours.update(ONBUDGET=spec['raw'], ONBUDGET_LOG=f'{run_dir}/meter.jsonl')
+    if spec['arm'] == 'C': ours.update(ONBUDGET=spec['raw'], ONBUDGET_LOG='1')   # the log: see link_log
     else: ours.update(CAP_USD=f"{spec['usd']:.2f}", CAP_LOG=f'{run_dir}/meter.jsonl', **(ARMS[spec['arm']].get('env') or {}))
     ours.update(extra or {})
     env = {k: v for k, v in lib.clean_env().items() if not k.startswith(STRIP_ENV)}
@@ -127,6 +127,30 @@ def context_files(start):
         found += [os.path.join(d, x) for x in names if os.path.exists(os.path.join(d, x))]
         if d == os.path.dirname(d) or d == home: return found
         d = os.path.dirname(d)
+
+
+# ---------------------------------------------------------------- onbudget's event log
+# Since the release commit of 0.1.0, onbudget writes its event log only to one fixed file in its own folder,
+# log/events.jsonl (then log/events.1.jsonl, ...), when ONBUDGET_LOG=1; each process that logs starts it again. Runs are
+# one at a time, so a run of arm C clears that log, links meter.jsonl (and its chunks) in the run directory to it for the
+# watchdog and lib.read_log, and replaces the links with copies when the session ends. Earlier runs wrote meter.jsonl
+# themselves (ONBUDGET_LOG named it); their directories are unchanged.
+LOG_LINKS = 200
+
+
+def link_log(run_dir, plugin_dir):
+    for f in glob.glob(f'{plugin_dir}/log/events*.jsonl'): os.remove(f)
+    for k in range(LOG_LINKS):
+        os.symlink(f'{plugin_dir}/log/events' + (f'.{k}' if k else '') + '.jsonl', f'{run_dir}/meter.jsonl' + (f'.{k}' if k else ''))
+
+
+def keep_log(run_dir, plugin_dir):
+    for k in range(LOG_LINKS):
+        link = f'{run_dir}/meter.jsonl' + (f'.{k}' if k else '')
+        if not os.path.islink(link): continue
+        target = os.readlink(link); os.remove(link)
+        if os.path.exists(target): shutil.copy2(target, link)
+    for f in glob.glob(f'{plugin_dir}/log/events*.jsonl'): os.remove(f)
 
 
 # ---------------------------------------------------------------- launch with the external watchdog
@@ -204,9 +228,11 @@ def run(spec, runs=RUNS, extra_plugins=(), extra_env=None, prompt_override=None,
     jdump(f'{rd}/env.json', dict(ours, PATH_prefix=SHIM, claude_version=claude_version(), claude_bin=CLAUDE, cwd=cwd, context_files=context))
     meta = dict(spec, names=names, plugins=plugin_names, cwd=cwd, started=time.strftime('%Y-%m-%dT%H:%M:%S'))
     jdump(f'{rd}/spec.json', meta)
+    if 'onbudget' in plugin_names: link_log(rd, PLUGINS['onbudget'])
     try:
         wall, killed = launch(cmd, cwd, env, prompt, rd, spec['usd'] + KILL_OVER, any(n in LOGGING_PLUGINS for n in plugin_names), on_start)
     finally:
+        if 'onbudget' in plugin_names: keep_log(rd, PLUGINS['onbudget'])
         keep_workspace(rid, runs)
     jdump(f'{rd}/spec.json', dict(meta, wall_s=round(wall, 1), killed=killed))
     return finish(rid, runs)

@@ -11,6 +11,9 @@ usage: python3 tests/e2e/run.py [check ...]        (no arguments: every check)
 """
 import json, os, shutil, subprocess, sys, tempfile
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import eventlog  # noqa: E402
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 MOCK = os.path.join(HERE, 'mock')
@@ -36,7 +39,7 @@ class Run:
         self.home = home or os.path.join(self.dir, 'home')
         script_path = os.path.join(self.dir, 'script.json'); json.dump(script, open(script_path, 'w'))
         self.log_path = os.path.join(self.dir, 'onbudget.jsonl'); self.mock_path = os.path.join(self.dir, 'mock.json')
-        e = dict(MOCK_SCRIPT=script_path, MOCK_LOG=self.mock_path, ONBUDGET_LOG=self.log_path, CLAUDE_CONFIG_DIR=self.home)
+        e = dict(MOCK_SCRIPT=script_path, MOCK_LOG=self.mock_path, ONBUDGET_LOG='1', CLAUDE_CONFIG_DIR=self.home)
         if ledger: e['MOCK_LEDGER'] = ledger
         if agents is not None:
             agents_path = os.path.join(self.dir, 'agents.json'); json.dump(agents, open(agents_path, 'w')); e['MOCK_AGENT_SCRIPT'] = agents_path
@@ -46,7 +49,9 @@ class Run:
         for p in plugins: cmd += ['--plugin-dir', p]
         if not slash: cmd.append('--disable-slash-commands')
         cmd += list(args)
-        p = subprocess.run(cmd, input=prompt, capture_output=True, text=True, cwd=self.cwd, env=clean_env(e), timeout=240)
+        eventlog.clear(REPO)   # the plugin's log is one fixed file in its folder: this process's alone, kept beside its files
+        try: p = subprocess.run(cmd, input=prompt, capture_output=True, text=True, cwd=self.cwd, env=clean_env(e), timeout=240)
+        finally: eventlog.keep(REPO, self.log_path)
         self.stdout, self.stderr, self.rc = p.stdout, p.stderr, p.returncode
         try: self.out = json.loads(p.stdout)
         except Exception: self.out = {}

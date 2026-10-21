@@ -198,8 +198,9 @@ describe('hooks', () => {
     capture('stop-in-flight', w, { main: main.result.answer, sub: sub.result.answer })
   })
 
-  test('ONBUDGET in the environment, with the effort cap from ONBUDGET_EFFORT', async ($, on) => {
-    const w = world(on, { env: { ...LOG, ONBUDGET: '$2', ONBUDGET_EFFORT: 'low' } })
+  // The effort cap comes from the plugin's `effort` option (ONBUDGET_EFFORT, which set it in earlier builds, was removed).
+  test('ONBUDGET in the environment, with the effort cap low', { options: { effort: 'low' } }, async ($, on) => {
+    const w = world(on, { env: { ...LOG, ONBUDGET: '$2' } })
     await start($)
     await prompt($, 'The first prompt is the task.')
     capture('env', w, { s: await work($, w, 0.4, 10) })
@@ -212,8 +213,8 @@ describe('hooks', () => {
     capture('typed', w, { s: await work($, w, 0.2, 10) })
   })
 
-  test('ONBUDGET_EFFORT=keep: the effort the caller asked for is sent', async ($, on) => {
-    const w = world(on, { env: { ...LOG, ONBUDGET_EFFORT: 'keep' } })
+  test('effort keep: the effort the caller asked for is sent', { options: { effort: 'keep' } }, async ($, on) => {
+    const w = world(on, { env: { ...LOG } })
     await start($)
     await run($, '$1 Keep the effort.')
     await w.clock.advance(5)

@@ -31,6 +31,7 @@ RESULTS = []
 COLS, ROWS = 80, 50
 sys.path.insert(0, os.path.join(REPO, 'tests', 'e2e'))
 from screen import Screen  # noqa: E402
+import eventlog  # noqa: E402
 
 # ---------------------------------------------------------------- permission dialogs: deny by default
 # A dialog as Claude Code 2.1.304 to 2.1.306 draw it, at the bottom of the screen:
@@ -113,7 +114,9 @@ class Session:
     def __init__(self, run_dir):
         self.log_path = os.path.join(run_dir, 'onbudget.jsonl')
         env = {k: v for k, v in os.environ.items() if not (k.startswith('CLAUDE') or k.startswith('ANTHROPIC_') or k.startswith('ONBUDGET'))}
-        env.update(DISABLE_AUTOUPDATER='1', TERM='xterm-256color', COLUMNS='160', LINES='50', ONBUDGET_LOG=self.log_path)
+        env.update(DISABLE_AUTOUPDATER='1', TERM='xterm-256color', COLUMNS='160', LINES='50', ONBUDGET_LOG='1')
+        self.closed = False
+        eventlog.clear(REPO)   # the plugin's log is one fixed file in its folder: read there while the session runs, kept when it closes
         if os.environ.get('SMOKE_NO_SUGGESTIONS'): env['CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION'] = 'false'   # to see what Claude Code's own request after a turn costs
         cmd = [CLAUDE, '--plugin-dir', REPO, '--permission-mode', 'acceptEdits', '--setting-sources', 'project,local', '--strict-mcp-config',
                '--allowedTools', 'Bash(python3 -m unittest:*),Bash(ls:*)', '--disallowedTools', 'WebFetch,WebSearch', '--model', 'opus[1m]', '--effort', 'high']
@@ -192,12 +195,19 @@ class Session:
         self.keys(b'\r'); self.pump(1)
 
     def rows(self, kind):
-        try: rows = [json.loads(l) for l in open(self.log_path) if l.strip()]
-        except OSError: return []
+        lines = (open(self.log_path).readlines() if os.path.exists(self.log_path) else []) if self.closed else eventlog.lines(REPO)
+        rows = []
+        for l in lines:
+            try: rows.append(json.loads(l))
+            except ValueError: pass   # a chunk being rewritten
         return rows if kind is None else [r['data'] for r in rows if r['kind'] == kind]
 
     def close(self):
-        """Ends the session with signals, never keystrokes: a key could land in an open dialog."""
+        """Ends the session with signals, never keystrokes: a key could land in an open dialog. Then keeps its log."""
+        self.stop()
+        eventlog.keep(REPO, self.log_path); self.closed = True
+
+    def stop(self):
         for sig, grace in ((signal.SIGTERM, 5), (signal.SIGKILL, 5)):
             try: os.kill(self.pid, sig)
             except ProcessLookupError: return

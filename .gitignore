@@ -9,3 +9,5 @@ eval/runs/*/transcript/
 eval/runs/*/home/
 eval/*.nohup
 eval/tmp/
+# onbudget's own event log (ONBUDGET_LOG=1), written in the plugin's folder: here when the repository is the plugin
+log/

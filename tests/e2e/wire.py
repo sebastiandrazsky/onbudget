@@ -15,6 +15,9 @@ usage: python3 tests/e2e/wire.py [check ...]
 """
 import json, os, re, shutil, signal, subprocess, sys, tempfile, time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import eventlog  # noqa: E402
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 CLAUDE = os.environ.get('ONBUDGET_CLAUDE_BIN', 'claude')
@@ -48,13 +51,15 @@ class Run:
             e = {k: v for k, v in os.environ.items() if not (k.startswith(('CLAUDE', 'ANTHROPIC_', 'ONBUDGET', 'MOCK_')))}
             e.update(ANTHROPIC_BASE_URL=f'http://127.0.0.1:{port}', ANTHROPIC_API_KEY='sk-ant-fake-wire', CLAUDE_CONFIG_DIR=self.home,
                      CLAUDE_CODE_MAX_RETRIES='0', DISABLE_TELEMETRY='1', DISABLE_AUTOUPDATER='1', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC='1',
-                     ONBUDGET_LOG=self.log_path)
+                     ONBUDGET_LOG='1')
             e.update(env or {})
             cmd = [CLAUDE, '-p', '--output-format', 'json', '--model', 'claude-opus-5-5', '--effort', 'high', '--permission-mode', 'acceptEdits',
                    '--setting-sources', 'project,local', '--strict-mcp-config', '--allowedTools', 'Bash(echo:*)', '--disable-slash-commands']
             for p in plugins: cmd += ['--plugin-dir', p]
             cmd += list(args)
-            p = subprocess.run(cmd, input=prompt, capture_output=True, text=True, cwd=self.cwd, env=e, timeout=240)
+            eventlog.clear(REPO)   # the plugin's log is one fixed file in its folder: this process's alone, kept beside its files
+            try: p = subprocess.run(cmd, input=prompt, capture_output=True, text=True, cwd=self.cwd, env=e, timeout=240)
+            finally: eventlog.keep(REPO, self.log_path)
             self.stdout, self.stderr, self.rc = p.stdout, p.stderr, p.returncode
         finally:
             server.send_signal(signal.SIGTERM); server.wait()

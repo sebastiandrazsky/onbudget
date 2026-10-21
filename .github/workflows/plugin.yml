@@ -24,11 +24,16 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
-      - name: Install the current Claude Code
+      # Claude Code from npm, with the runner's own Node: the release current at the time of the run, in a prefix of its own.
+      - name: Install the current Claude Code from npm
         run: |
-          curl -fsSL https://claude.ai/install.sh | bash
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-      - run: claude --version
+          node --version
+          npm install --prefix "$RUNNER_TEMP/claude-code" --no-audit --no-fund @anthropic-ai/claude-code
+          echo "$RUNNER_TEMP/claude-code/node_modules/.bin" >> "$GITHUB_PATH"
+      - name: Claude Code version, and where it runs from
+        run: |
+          command -v claude
+          claude --version
       - name: Validate (the plugin manifest, then the marketplace manifest)
         run: |
           claude plugin validate --strict .claude-plugin/plugin.json
@@ -39,3 +44,5 @@ jobs:
         run: python3 tests/e2e/run.py
       - name: End to end, fake API on localhost
         run: python3 tests/e2e/wire.py
+      - name: The paid smoke script's permission-dialog matcher, on synthetic dialogs
+        run: python3 tests/e2e/dialogs.py

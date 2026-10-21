@@ -24,6 +24,7 @@ export function world(on: On, init: { env?: Record<string, string>; store?: Reco
     prompts: [] as any[], // prompts that entered the session
     commands: [] as any[],
     files: new Map<string, string>(),
+    exists: (_path: string): boolean => false, // files that exist beside those written in the test (left by an earlier run)
     store: new Map<string, unknown>(Object.entries(init.store ?? {})), // the plugin's own store
     clock: mock.clock(on, { now: 1_700_000_000_000 }),
     usage() {
@@ -48,6 +49,7 @@ export function world(on: On, init: { env?: Record<string, string>; store?: Reco
   on('ui.status', (_$, e: any) => { w.status.push(e.text); return value() })
   on('ui.log', (_$, e: any) => { w.logs.push(e.text); return value() })
   on('fs.write', (_$, e: any) => { w.files.set(e.path, e.text); return value() })
+  on('fs.exists', (_$, e: any) => value(w.files.has(e.path) || w.exists(e.path)))
   on('prompt.submit', (_$, e) => {
     const answer = w.enter(e)
     if (answer.drop === undefined) w.prompts.push(e)
@@ -106,14 +108,19 @@ export function deferred() {
   return { promise, open }
 }
 
-/** The plugin's event log (ONBUDGET_LOG=/log in the test's env), as rows of one kind. */
+/** The chunks of the plugin's event log (ONBUDGET_LOG=1): log/events.jsonl, log/events.1.jsonl, ... in the plugin's folder. */
+export const LOG_FILE = /\/log\/events(?:\.(\d+))?\.jsonl$/
+export function logChunks(w: World): [string, string][] {
+  return [...w.files].filter(([path]) => LOG_FILE.test(path)).sort(([a], [b]) => Number(LOG_FILE.exec(a)![1] ?? 0) - Number(LOG_FILE.exec(b)![1] ?? 0))
+}
+
+/** The plugin's event log, as rows of one kind. */
 export function rows(w: World, kind: string): any[] {
   const out: any[] = []
-  for (const [path, text] of w.files) {
-    if (!path.startsWith('/log')) continue
+  for (const [, text] of logChunks(w)) {
     for (const line of text.split('\n')) if (line) { const r = JSON.parse(line); if (r.kind === kind) out.push(r.data) }
   }
   return out
 }
 
-export const LOG = { ONBUDGET_LOG: '/log' }
+export const LOG = { ONBUDGET_LOG: '1' }

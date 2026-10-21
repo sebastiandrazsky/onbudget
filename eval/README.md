@@ -14,7 +14,7 @@ Model (`opus[1m]`), effort (`--effort medium`), tools, prompt body, scoring and 
 | --- | --- | --- | --- |
 | A plain | task list, final-line instruction | `eval/capmod` (silent external cap) | `CAP_USD`, `CAP_LOG` |
 | B prompt-only | A plus one budget paragraph before the final-line instruction | `eval/capmod` | `CAP_USD`, `CAP_LOG` |
-| C onbudget | identical to A (the plugin appends its own text) | the repository root | `ONBUDGET`, `ONBUDGET_LOG` |
+| C onbudget | identical to A (the plugin appends its own text) | the repository root | `ONBUDGET`, `ONBUDGET_LOG` (a file name in the published runs; `1` from the release commit on) |
 | A0 plain, simple cap | identical to A | `eval/capmod` | `CAP_USD`, `CAP_LOG`, `CAP_RULE=simple` |
 
 Arm A0 was added after the first results (see "Runs added after the first results" below).
@@ -307,6 +307,15 @@ plugin's event log), `shim.log` (created empty at launch, so an empty file means
 `score.json`, `final_message.txt`, `ws.diff` (each task directory against its base tree; caches and virtualenvs excluded,
 binary files named only, capped at 2 MB), and the full `ws/` and `transcript/`. The transcript is copied from the CLI's
 store once, at the first scoring; a rescore reads the saved copy.
+
+Where arm C's `meter.jsonl` comes from. Every published run (both rounds, and the interactive sessions) was made with a
+build whose `ONBUDGET_LOG` named a file, and the plugin wrote `meter.jsonl` in the run directory itself; those directories
+are unchanged. From the release commit of 0.1.0 on, the plugin writes its event log only to one fixed file in its own
+folder, `log/events.jsonl` (then `log/events.1.jsonl`, ... every 200 rows), and only when `ONBUDGET_LOG=1`; each
+process that logs starts it again. For a run of arm C, `harness.py` now sets `ONBUDGET_LOG=1`, clears that log in the
+plugin folder (the repository root), links `meter.jsonl` and its chunks in the run directory to it so that the watchdog
+reads it as before, and replaces the links with copies when the session ends. Runs are one at a time, so the log is
+that run's alone. `eval/interactive_smoke.py` and the suites under `tests/e2e/` do the same through `tests/e2e/eventlog.py`.
 
 The shim (`eval/shim/python`, with `python3` and `pytest` linked to it) runs the command in the prepared environment of
 the task whose subdirectory it was started from: `WITHIN_WS` is the workspace root, `WITHIN_TASKS` holds the

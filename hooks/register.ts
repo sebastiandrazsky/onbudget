@@ -2,10 +2,10 @@
 //
 // Everything this module does:
 //   reads    the session's cost ledger and rate-limit readings, its id and model, the environment variables
-//            ONBUDGET, ONBUDGET_EFFORT, ONBUDGET_LOG and CLAUDE_CODE_TOTAL_TOKENS_REMINDER, and its own store;
+//            ONBUDGET, ONBUDGET_LOG and CLAUDE_CODE_TOTAL_TOKENS_REMINDER, and its own store;
 //   writes   its own store (each session's budget; calibration records of dollars spent and points moved; the
-//            last reading of each usage window), its status line, and, only when ONBUDGET_LOG names a file, an
-//            event log there;
+//            last reading of each usage window), its status line, and, only when ONBUDGET_LOG is 1, an event log
+//            in its own folder (log/events.jsonl under the plugin's directory);
 //   changes  only while a budget is set: the effort of each model request (lowered to the cap, never raised),
 //            one line of context after each tool result and with each later prompt, the refusal of requests the
 //            budget cannot cover, and Claude Code's own token countdown, which is left out of new requests.
@@ -54,7 +54,8 @@ let hidden: Record<string, number[]> = {} // countdowns left out of this session
 const asked = new Map<string, number>() // how often each countdown text has been asked about in this process
 const HIDDEN_KEEP = 2000
 const LOADED = Date.now() // when this module loaded: a session that began well before it was resumed
-let logPath: string | undefined
+let logOn = false // ONBUDGET_LOG=1: the event log is written, to log/events.jsonl in the plugin's own folder
+let logCleared = false // the chunks an earlier process left there were emptied
 let logRows: string[] = []
 let logChunk = 0
 let logWrites: Promise<unknown> = Promise.resolve()
@@ -74,15 +75,26 @@ function ledgerOf(u: SessionUsage): number {
   return usd
 }
 
-/** The event log, for evaluation and debugging; off unless ONBUDGET_LOG names a file. Never changes a run. */
+/**
+ * The event log, for evaluation and debugging. Off unless ONBUDGET_LOG is 1; never changes a run. It is one fixed file
+ * in the plugin's own folder, `log/events.jsonl`, continued in `log/events.1.jsonl`, `log/events.2.jsonl`, ... every
+ * LOG_CHUNK rows. Each process that logs starts it again. No other path is ever written: without an absolute plugin
+ * folder there is no log.
+ */
 async function log($: Engine, kind: string, data: unknown): Promise<void> {
-  if (!logPath) return
+  if (!logOn) return
   try {
+    const root = $.plugin.root
+    if (typeof root !== 'string' || !root.startsWith('/')) return
+    if (!logCleared) {
+      logCleared = true
+      for (let n = 1; n <= 1000 && (await $.fs.exists(`${root}/log/events.${n}.jsonl`)); n++) await $.fs.write(`${root}/log/events.${n}.jsonl`, '')
+    }
     if (logRows.length >= LOG_CHUNK) { logRows = []; logChunk += 1 }
     logRows.push(JSON.stringify({ t: (await $.clock.now()) - t0, kind, data }))
-    const path = logChunk === 0 ? logPath : `${logPath}.${logChunk}`
+    const chunk = logChunk
     const body = logRows.join('\n') + '\n'
-    logWrites = logWrites.then(() => $.fs.write(path, body)).catch(() => undefined)
+    logWrites = logWrites.then(() => $.fs.write(chunk === 0 ? `${root}/log/events.jsonl` : `${root}/log/events.${chunk}.jsonl`, body)).catch(() => undefined)
     await logWrites
   } catch { /* ignore */ }
 }
@@ -100,9 +112,7 @@ async function load($: Engine): Promise<void> {
   sid = await $.session.id()
   // The engine wants each variable read by its literal name, so that what a module reads can be listed.
   const env = (read: Promise<string | undefined>) => read.then(v => v?.trim() || undefined, () => undefined)
-  logPath = await env($.env.get('ONBUDGET_LOG'))
-  const effort = (await env($.env.get('ONBUDGET_EFFORT')))?.toLowerCase()
-  if (isEffortCap(effort)) effortCap = effort
+  logOn = (await env($.env.get('ONBUDGET_LOG'))) === '1'
   envBudget = (await $.store.get(`env:${sid}`)) === undefined ? await env($.env.get('ONBUDGET')) : undefined
   countdownSet = (await env($.env.get('CLAUDE_CODE_TOTAL_TOKENS_REMINDER'))) !== undefined
   const kept = await $.store.get(`hid:${sid}`)
