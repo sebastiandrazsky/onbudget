@@ -496,7 +496,7 @@ It read "at $0.16 of 81 points of the weekly usage window". It now gives the poi
 
 ### CRITICAL was read once, not twice
 
-In all three live runs that came near the stop, the meter read CRITICAL once. At $0.12 the first request cost $0.065, above the $0.05 reserve held before any request is priced, so one request left no room for a second. At $0.15 and $0.25 the second request cost about three times the first. That is the stated exception (a request dearer than any before it), and none of the three passed its budget, but at small budgets it is the normal case. The meter and the stop rule are unchanged in 0.1.0. The README now states the condition beside the guarantee, what the acceptance saw, and that a budget which fits only a few requests gives little warning; the release notes and `CHECKLIST.md` say the same.
+In all three live runs that came near the stop (Claude Code 2.1.304, Claude Opus 5.5), the meter read CRITICAL once. At $0.12 the first request cost $0.065, above the $0.05 reserve held before any request is priced, so one request left no room for a second. At $0.15 and $0.25 the second request cost about three times the first. That is the stated exception (a request dearer than any before it), and none of the three passed its budget, but at small budgets it is the normal case. The meter and the stop rule are unchanged in 0.1.0. The README now states the condition beside the guarantee, what the acceptance saw, and that a budget which fits only a few requests gives little warning; the release notes and `CHECKLIST.md` say the same.
 
 ### What the model reads is unchanged
 
@@ -512,9 +512,17 @@ Against `c82a535`, all 31,396 texts are identical, and the run reports every sta
 - Added: the folder-trust question starts on "No, exit"; a prompt the plugin turns away comes back into the input box (Claude Code 2.1.299 and later), to be cleared before typing on.
 - The status-line and end-line texts quoted throughout are the new ones.
 
+### The live re-check
+
+The fixes (`9b99c51`) were re-checked live on Claude Code 2.1.306 with Claude Opus 5.5, in an 80-column terminal, for $0.38 by Claude Code's ledger. PASS: one prefix on the end-of-task line; the 5-hour limit named on the status line under `$500` (`tier HIGH · $41.65 left (5h limit) · budget $500.00`); the end line of a `week` budget in points. Not verified live: the stop of a dollar budget that runs out. The status line was seen live with its tier and amount left up to `tier CRITICAL`, and Claude received the meter at CRITICAL with $0.00 left, but in both attempts the test driver left a Claude Code permission prompt open, so no request reached the stop. The COO accepted this item on 2026-10-21 on other evidence: the stop was seen live on 2.1.304 at `c82a535` (the acceptance's S1 and S5b), its path is unchanged (the model-text proof above), and the stop notice and the STOPPED line were drawn by 2.1.306 with a scripted model. The README's first screen is that scripted capture, labelled as such.
+
+### The paid smoke script
+
+The same fault class was in `eval/interactive_smoke.py`, which answered Claude Code's permission prompts with Yes: in its session 7 it approved two file creates in the repository root and the Bash command that removed them. They were never committed, and that session's budget checks are unaffected. The script now refuses every permission prompt except a create or edit inside its own folder; `eval/README.md` gives the detail, and `tests/e2e/dialogs.py` tests the matcher at no cost.
+
 ### The tag
 
-`v0.1.0` moves once, from `c82a535` (tag object `18f452f`) to the release commit. The release commit is the commit that puts the README's first-screen capture on top of the commit re-checked with the real model; it changes only `README.md`, so it cannot name its own SHA here. `RELEASE-STATE.md`, kept with the acceptance evidence, records the re-checked commit, the release commit and the tag object. The `eval-freeze` tags do not move.
+`v0.1.0` moved once, from `c82a535` (tag object `18f452f`) to the release commit, which carries these notes and the smoke-script change on top of the re-checked `9b99c51`. A commit cannot name its own SHA, so `RELEASE-STATE.md`, kept with the acceptance evidence, records the release commit and the new tag object. The `eval-freeze` tags do not move.
 
 ### Where I disagree, or did something other than asked
 

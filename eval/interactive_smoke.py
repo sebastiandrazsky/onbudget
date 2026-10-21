@@ -9,9 +9,18 @@ STATUS line, the status line, and the plugin's stop on a budget too small to fin
 It runs in eval/tmp/interactive-real/ (inside this repository, so the folder is already trusted) with your real Claude
 config, and saves the plugin's event log, the screen text and a summary to eval/runs/interactive-real-<n>/.
 
+Permission prompts: it answers No (Esc) to every Claude Code permission dialog except one. It answers Yes only to a
+"Create file" or "Edit file" dialog whose target path, read from that dialog's own box, is inside its own working folder
+(compared with realpath and commonpath; on macOS /tmp is /private/tmp). Every Bash prompt is answered No, and so is any
+path that is wrapped, cut ("…"), relative with "..", written from the home folder ("~/…"), or outside the folder, and any dialog it does not recognise,
+including one taller than the screen, whose heading has scrolled off. It
+never types while a dialog is open, and it closes the session with signals. Each dialog, its target and the answer are
+in the summary. A model that writes outside the folder or runs other commands is refused, and the run may then fail its
+checks: that is the intended cost of never approving them. `tests/e2e/dialogs.py` tests the matcher at no cost.
+
 usage: python3 eval/interactive_smoke.py
 """
-import glob, json, os, pty, re, select, shutil, subprocess, sys, time
+import codecs, fcntl, glob, json, os, pty, re, select, shutil, signal, struct, subprocess, sys, termios, time
 
 EVAL = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(EVAL)
@@ -19,6 +28,80 @@ CLAUDE = os.environ.get('ONBUDGET_CLAUDE_BIN', 'claude')
 CWD = os.path.join(EVAL, 'tmp', 'interactive-real')
 ANSI = re.compile(r'\x1b\[[0-9;?<>=]*[a-zA-Z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][0-9A-B]|\x1b[=>78]')
 RESULTS = []
+COLS, ROWS = 80, 50
+sys.path.insert(0, os.path.join(REPO, 'tests', 'e2e'))
+from screen import Screen  # noqa: E402
+
+# ---------------------------------------------------------------- permission dialogs: deny by default
+# A dialog as Claude Code 2.1.304 to 2.1.306 draw it, at the bottom of the screen:
+#   ──────────── (a full-width rule: the box's top edge)
+#    Create file | Edit file | Bash command | ...   (the kind)
+#    <path>                                          (file dialogs: the target, relative to the working folder or absolute)
+#   ╌╌╌╌╌╌╌╌╌╌╌╌ (a dashed rule: what follows is the content)
+#    ...
+#    Do you want to create <name>? | Do you want to make this edit to <name>? | Do you want to proceed?
+#    ❯ 1. Yes
+#      2. ...
+#    Esc to cancel · Tab to amend
+RULE = re.compile(r'^\s*─{20,}\s*$')
+DASHED = re.compile(r'^\s*╌{10,}\s*$')
+FOOTER = re.compile(r'^\s*Esc to cancel\b')
+QUESTION = re.compile(r'^\s*Do you want to (.+)\?\s*$')
+FIRST = re.compile(r'^\s*❯?\s*1\.\s+Yes\s*$')
+FILE_KINDS = {'Create file': 'create ', 'Edit file': 'make this edit to '}
+
+
+def find_dialog(rows):
+    """The permission dialog on screen, read from its own box, or None: the box runs from the last full-width rule above
+    the last "Esc to cancel" line to that line. Nothing outside the box is read (the banner shows the working path)."""
+    ends = [i for i, l in enumerate(rows) if FOOTER.match(l)]
+    if not ends: return None
+    end = ends[-1]
+    tops = [i for i in range(end) if RULE.match(rows[i])]
+    # A dialog taller than the screen has its edge and heading scrolled off: it is still a dialog, of no known kind.
+    box = [l.rstrip() for l in rows[tops[-1] + 1:end]] if tops else ['(heading off screen)'] + [l.rstrip() for l in rows[:end]]
+    if not box: return None
+    # A box with no question (an offer of Claude Code's own) is still a dialog: it gets No, never typed input.
+    questions = [i for i, l in enumerate(box) if QUESTION.match(l)]
+    q = questions[-1] if questions else None
+    return dict(kind=box[0].strip(), box=box, question=QUESTION.match(box[q]).group(1).strip() if q is not None else '',
+                first=box[q + 1].strip() if q is not None and q + 1 < len(box) else '', sig='\n'.join(box))
+
+
+def decide(dialog, cwd):
+    """'yes' or 'no' for a dialog, and why. Yes only for a create or edit of a file inside `cwd`, as the dialog states it."""
+    kind = dialog['kind']
+    if kind not in FILE_KINDS: return 'no', f'{kind or "unrecognised"}: only file creates and edits are approved'
+    box = dialog['box']
+    if len(box) < 3 or not DASHED.match(box[2]): return 'no', 'the path is wrapped or missing'
+    path = box[1].strip()
+    if not path or '…' in path or '..' in path or any(c.isspace() for c in path): return 'no', f'the path {path!r} is cut, relative with "..", or unclear'
+    # Claude Code writes a path under the home folder as ~/...; not absolute, it would otherwise be read as inside the folder.
+    if path.startswith('~') or any(c in path for c in '$`'): return 'no', f'the path {path!r} names the home folder or a variable'
+    target = os.path.realpath(path if os.path.isabs(path) else os.path.join(cwd, path))
+    root = os.path.realpath(cwd)
+    if target == root or os.path.commonpath([root, target]) != root: return 'no', f'{target} is outside {root}'
+    if dialog['question'] != FILE_KINDS[kind] + os.path.basename(target): return 'no', f'the question ({dialog["question"]!r}) does not name {os.path.basename(target)}'
+    if not FIRST.match(dialog['first']): return 'no', f'the first option is not "1. Yes" ({dialog["first"]!r})'
+    return 'yes', f'{kind.lower()} inside the working folder'
+
+
+def target_of(dialog):
+    """What a dialog is about, for the record: a file dialog's path, else the first line between its dashed rules (a command)."""
+    box = dialog['box']
+    if dialog['kind'] in FILE_KINDS: return box[1].strip() if len(box) > 1 else ''
+    if dialog['kind'] == '(heading off screen)': return ''
+    dashes = [i for i, l in enumerate(box) if DASHED.match(l)]
+    inner = box[dashes[0] + 1:dashes[1]] if len(dashes) > 1 else box[1:]
+    return ' '.join(l.strip().lstrip('│').strip() for l in inner if l.strip())[:200]
+
+
+def input_open(rows):
+    """Whether Claude Code's prompt box is on screen and no dialog is: a "❯" line between two full-width rules."""
+    if find_dialog(rows): return False
+    for i in range(len(rows) - 2):
+        if RULE.match(rows[i]) and re.match(r'^\s*❯(?!\s*\d\.)', rows[i + 1]) and any(RULE.match(r) for r in rows[i + 2:i + 6]): return True
+    return False
 
 
 def check(name, ok, detail=''):
@@ -34,10 +117,13 @@ class Session:
         if os.environ.get('SMOKE_NO_SUGGESTIONS'): env['CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION'] = 'false'   # to see what Claude Code's own request after a turn costs
         cmd = [CLAUDE, '--plugin-dir', REPO, '--permission-mode', 'acceptEdits', '--setting-sources', 'project,local', '--strict-mcp-config',
                '--allowedTools', 'Bash(python3 -m unittest:*),Bash(ls:*)', '--disallowedTools', 'WebFetch,WebSearch', '--model', 'opus[1m]', '--effort', 'high']
+        env.update(COLUMNS=str(COLS), LINES=str(ROWS))
         self.pid, self.fd = pty.fork()
         if self.pid == 0:
             os.chdir(CWD); os.execvpe(CLAUDE, cmd, env)
-        self.buf = b''; self.all = b''; self.fresh = b''; self.dialogs = 0; self.declined = 0
+        fcntl.ioctl(self.fd, termios.TIOCSWINSZ, struct.pack('HHHH', ROWS, COLS, 0, 0))
+        self.vt, self.utf8 = Screen(COLS, ROWS), codecs.getincrementaldecoder('utf-8')('replace')
+        self.buf = b''; self.all = b''; self.dialogs = []; self.pending = None; self.answered = None
         self.wait(lambda: self.rows('session.start'), 40); self.pump(3)
 
     def pump(self, secs):
@@ -47,16 +133,25 @@ class Session:
             if r:
                 try: chunk = os.read(self.fd, 65536)
                 except OSError: return
-                self.buf += chunk; self.all += chunk; self.fresh += chunk
-        fresh = re.sub(r'\s+', '', ANSI.sub('', self.fresh.decode('utf-8', 'replace')))
-        if 'LSPrecommendations' in fresh:
-            # Claude Code offers a language-server plugin when it sees Python files. That is not this check's to accept: answer "No".
-            self.fresh = b''; self.declined += 1
-            os.write(self.fd, b'2'); time.sleep(1)
-        elif re.search(r'Doyouwantto(create|makethisedit|overwrite|proceed).*1\.Yes', fresh):
-            # Claude Code asks before it creates or edits a file in this folder; answer "Yes" as a person at the prompt would.
-            self.fresh = b''; self.dialogs += 1
-            os.write(self.fd, b'\r'); time.sleep(1)
+                self.buf += chunk; self.all += chunk; self.vt.feed(self.utf8.decode(chunk))
+            self.answer()
+
+    def screen_rows(self):
+        return [self.vt.row(y) for y in range(ROWS)]
+
+    def answer(self):
+        """Answers a permission dialog once it has been drawn the same twice in a row: Yes only to a create or edit inside
+        CWD, No (Esc) to everything else. A dialog still there 5 seconds after its answer is answered again."""
+        d = find_dialog(self.screen_rows())
+        if not d: self.pending = None; return
+        if self.answered and self.answered[0] == d['sig'] and time.time() - self.answered[1] < 5: return
+        if self.pending != d['sig']: self.pending = d['sig']; return
+        verdict, why = decide(d, CWD)
+        target = target_of(d)
+        self.dialogs.append(dict(t=time.strftime('%H:%M:%S'), kind=d['kind'], target=target[:200], question=d['question'][:200], answer=verdict, why=why))
+        print(f"      dialog: {d['kind']!r} {target[:80]!r} -> {verdict} ({why})", flush=True)
+        os.write(self.fd, b'1' if verdict == 'yes' else b'\x1b')
+        self.answered, self.pending = (d['sig'], time.time()), None
 
     def wait(self, cond, timeout):
         end = time.time() + timeout
@@ -79,12 +174,22 @@ class Session:
         screen = re.sub(r'\s+', '', ANSI.sub('', (self.all if everything else self.buf).decode('utf-8', 'replace')))
         return re.sub(r'\s+', '', text) in screen
 
-    def mark(self): self.buf = b''; self.fresh = b''
+    def mark(self): self.buf = b''
+
+    def keys(self, raw):
+        """Sends keys to the prompt, never into a dialog: waits for the prompt box, and refuses after 60 seconds."""
+        if not self.wait(lambda: input_open(self.screen_rows()), 60):
+            raise RuntimeError('the prompt did not come back (a dialog or a turn is still open); nothing was typed')
+        os.write(self.fd, raw)
 
     def type(self, text):
+        self.keys(b'\x15')   # Claude Code 2.1.299 puts a turned-away prompt back into the input box: clear it (Ctrl-U)
+        self.pump(0.3)
         for ch in text:
+            if find_dialog(self.screen_rows()): raise RuntimeError('a dialog opened while typing; stopped')
             os.write(self.fd, ch.encode()); time.sleep(0.02)
-        self.pump(1); os.write(self.fd, b'\r'); self.pump(1)
+        self.pump(1)
+        self.keys(b'\r'); self.pump(1)
 
     def rows(self, kind):
         try: rows = [json.loads(l) for l in open(self.log_path) if l.strip()]
@@ -92,13 +197,16 @@ class Session:
         return rows if kind is None else [r['data'] for r in rows if r['kind'] == kind]
 
     def close(self):
-        try:
-            os.write(self.fd, b'\x03'); self.pump(0.5); os.write(self.fd, b'\x03'); self.pump(2)
-        except OSError: pass
-        try: os.kill(self.pid, 9)
-        except Exception: pass
-        try: os.waitpid(self.pid, 0)
-        except Exception: pass
+        """Ends the session with signals, never keystrokes: a key could land in an open dialog."""
+        for sig, grace in ((signal.SIGTERM, 5), (signal.SIGKILL, 5)):
+            try: os.kill(self.pid, sig)
+            except ProcessLookupError: return
+            end = time.time() + grace
+            while time.time() < end:
+                try:
+                    if os.waitpid(self.pid, os.WNOHANG) != (0, 0): return
+                except ChildProcessError: return
+                time.sleep(0.2)
 
 
 def main():
@@ -144,7 +252,6 @@ def main():
         s.mark(); s.type('continue')
         check('a follow-up on the stopped budget is turned away with the reason and no request is sent',
               s.wait(lambda: s.shows('the budget has stopped this session'), 30) and len(s.rows('step')) == answered and len(s.rows('stop')) == 1)
-        os.write(s.fd, b'\x15'); s.pump(0.5)   # Claude Code 2.1.299 puts a turned-away prompt back into the input box: clear it (Ctrl-U)
 
         s.mark(); s.type('/onbudget off')
         check('/onbudget off removes the budget', s.wait(lambda: s.shows('budget removed'), 15) and len(s.rows('off')) == 1)
@@ -166,7 +273,7 @@ def main():
         ledger = max([x['costUsd'] for x in s.rows('step')] or [0])
         screen = re.sub(r'[ \t]+', ' ', ANSI.sub('', s.all.decode('utf-8', 'replace')))
         open(os.path.join(run_dir, 'screen.txt'), 'w').write(screen)
-        json.dump(dict(checks=RESULTS, permission_dialogs_answered=s.dialogs, plugin_offers_declined=s.declined, passed=sum(ok for _, ok in RESULTS), failed=sum(not ok for _, ok in RESULTS), session_cost_usd=ledger,
+        json.dump(dict(checks=RESULTS, permission_dialogs=s.dialogs, approved=sum(d['answer'] == 'yes' for d in s.dialogs), refused=sum(d['answer'] == 'no' for d in s.dialogs), passed=sum(ok for _, ok in RESULTS), failed=sum(not ok for _, ok in RESULTS), session_cost_usd=ledger,
                        claude=subprocess.run([CLAUDE, '--version'], capture_output=True, text=True).stdout.strip(), at=time.strftime('%Y-%m-%d %H:%M:%S')),
                   open(os.path.join(run_dir, 'summary.json'), 'w'), indent=1)
         sid = (s.rows('session.start') or [{}])[0].get('sid')

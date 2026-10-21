@@ -100,9 +100,15 @@ rounds stay comparable.
 
 `python3 eval/interactive_smoke.py` is outside the queue and its ledger. It drives one real terminal session with the real
 model through a pseudo-terminal and costs about $0.20: `/onbudget $0.50` on a small coding task, `/onbudget`, a $0.07 budget
-that cannot finish, a follow-up prompt, `/onbudget off`. It answers Claude Code's own file-permission prompts with Yes and
-declines its offer of a language-server plugin. Each session's plugin log, screen text and summary are in
-`eval/runs/interactive-real-<n>/`. Six sessions were run, $1.08 in all:
+that cannot finish, a follow-up prompt, `/onbudget off`. It answers No (Esc) to every Claude Code permission dialog
+except one kind: it answers Yes only to a "Create file" or "Edit file" dialog whose target path, read from that dialog's
+own box, is inside its working folder `eval/tmp/interactive-real/` (compared with `realpath` and `commonpath`). Every
+Bash prompt gets No, and so does a path that is wrapped, cut, relative with `..` or outside the folder, a dialog whose
+heading has scrolled off the screen, and anything it does not recognise, the language-server offer included. It never
+types while a dialog is open and closes the session with signals. The summary lists every dialog, its target and the
+answer. `python3 tests/e2e/dialogs.py` tests the matcher on synthetic dialogs at no cost. Each session's plugin log,
+screen text and summary are in `eval/runs/interactive-real-<n>/`. Seven sessions were run with the earlier driver,
+which answered "Do you want to ..." dialogs with Yes; see the note under the table. $1.08 in all for the first six:
 
 | Session | Checks | Note |
 | --- | --- | --- |
@@ -114,6 +120,18 @@ declines its offer of a language-server plugin. Each session's plugin log, scree
 
 In session 4, and possibly session 3, the driver answered that plugin offer with Yes. The plugin (`pyright-lsp`) was already installed and enabled for
 the user; the answer refreshed its install timestamp. From session 5 on the driver declines the offer.
+
+The driver used for sessions 1 to 7 answered "Do you want to ..." dialogs with Yes. Read back on 2026-10-21 from
+each session's screen text (the driver deleted the session transcripts): session 7 approved two file creates outside its
+folder, `../../../fizzbuzz.py` and `../../../test_fizzbuzz.py`, which landed in the repository's root, and one Bash
+command, an `rm` of those two files followed by `cd` into its folder and `python3 -m unittest`, which Claude Code had
+flagged as touching a sensitive file. Session 1 approved two Bash commands that wrote its files with `cat >` inside its
+folder. Every other dialog in sessions 1 to 7 was a file create or edit inside the session's folder. The two files in
+the root were removed by that command and were never committed. Session 7's 15 answered dialogs reconcile with its
+plugin log: 16 tool calls ran (5 Write, 9 Edit, 2 Bash), and the dialogs were the 5 creates, the 9 edits and that one
+Bash command; the other Bash call showed no dialog, so it matched the run's `--allowedTools`. Each Yes was option 1,
+for that one action; no permission rule was saved. Session 7's budget checks are unaffected: the meter, the effort cap,
+the end-of-task line and the stop do not depend on where Claude wrote its files. The driver now refuses all of these.
 
 Sessions 4 to 6 ran the plugin with the one change made after the freeze (a prompt sent after a stop is turned away).
 

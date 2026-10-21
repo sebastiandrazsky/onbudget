@@ -37,7 +37,7 @@ Accept the folder-trust question for the scratch folder: it starts on "No, exit"
 ## 4. A budget that runs out
 
 - [ ] `/onbudget $0.12 Write a 3,000-word design document for a plugin system, in a file, section by section.`
-- [ ] As the spend nears the stop the status line's tier turns CRITICAL, with what is left beside it. It stays CRITICAL for two of Claude's steps only if no request costs more than the dearest before it; at a budget this small the next request often costs several times the first, and then CRITICAL shows for one step or none (the acceptance of 2026-10-21 saw one).
+- [ ] As the spend nears the stop the status line's tier turns CRITICAL, with what is left beside it. It stays CRITICAL for two of Claude's steps only if no request costs more than the dearest before it; at a budget this small the next request often costs several times the first, and then CRITICAL shows for one step or none (the acceptance of 2026-10-21 saw one, on Claude Code 2.1.304).
 - [ ] Before long a message appears that begins `[onbudget] Stopped:` and states the spend, the reserve, and that it comes from the plugin and not from Claude.
 - [ ] The status line reads `onbudget: STOPPED · $… of $0.12 · /onbudget off`. The figure at the stop is at or under $0.12, or over it by less than one request. It may rise by a few cents afterwards: that is Claude Code's own prompt-suggestion request (see the README's limitations).
 - [ ] Send `continue`. It is not sent: a line says the budget has stopped this session and how to go on, and Claude Code puts `continue` back into the input box. Clear it (Ctrl-U) before you type on.
