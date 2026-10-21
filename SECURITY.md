@@ -13,6 +13,6 @@ Include the onbudget version (`/onbudget` prints it), the Claude Code version (`
 
 ## What counts
 
-A vulnerability is anything that lets onbudget, or another plugin through it, read or write outside its own store, make a network call, run a command, expose data, or send a request that a budget should have refused without saying so. A budget passed in one of the two documented ways (README, "What it guarantees") is a known limit, not a vulnerability.
+A vulnerability is anything that lets onbudget, or another plugin through it, read or write beyond what the README lists (its own store, and its event log only with `ONBUDGET_LOG=1`), make a network call, run a command, expose data, or send a request that a budget should have refused without saying so. A budget passed in one of the two documented ways (README, "What it guarantees") is a known limit, not a vulnerability.
 
 Only the latest release is supported.
