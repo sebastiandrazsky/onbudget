@@ -443,8 +443,11 @@ All of these spend nothing.
 | `tests/e2e/interactive.py`, pseudo-terminal | 2.1.288, 2.1.304 | 21 of 21 |
 | Directory file rules, by script over the copy's tracked files | | under 512 files, none of 256 KiB or more, all UTF-8 text, no system files, no symlinks or LFS, names valid on Windows |
 | Task rebuild, `eval/rebuild_tasks.py --prove pluggy` | | PASS, trees byte-identical to the lab's |
+| GitHub Actions on the release push (run 39582155202), with the pinned actions | 2.1.306, Linux | green: both manifests validate, 143 of 143, 57 of 57, 14 of 14 (effortless is not in CI) |
+| The documented install by name, from a clean config directory | 2.1.304 | installed commit `30514bd` as 0.1.0; `claude -p "/onbudget"` answers `no budget is set` with a fake key and no model request |
+| `check_copy.sh` on the regenerated copy | | no home path or personal address, no `screen.txt`, no system files, no unreachable objects, one identity |
 
-2.1.304 is the newest build on this machine. The builds after it are covered by CI, which installs the current release on every push.
+2.1.304 is the newest build on this machine; 2.1.306, the current release, ran in CI. The pinned install (`#v0.1.0`) is checked after the tag is pushed, and the readiness note reports it.
 
 ### Where I disagree, or did something other than asked
 
@@ -455,7 +458,7 @@ All of these spend nothing.
 
 ### What I could not verify
 
-- **Claude Code 2.1.305 and 2.1.306.** They are not on this machine. The suites ran on 2.1.288 and 2.1.304. The release push runs CI on the current release, Linux only, without the terminal suite.
+- **Claude Code 2.1.305, and 2.1.306 on macOS.** Neither is on this machine. 2.1.306 ran in CI on Linux, without the terminal suite and without effortless.
 - **The model's behaviour under a weekly budget counted in points.** That would need a paid run.
 - **The directory portal's Validate, and whether the name is free.** Only the portal can say.
 - **The facts about native features and other plugins.** These were given in the brief; I did not re-check them.
